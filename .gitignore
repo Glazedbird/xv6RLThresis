@@ -1,0 +1,35 @@
+# LaTeX
+thesis/build/
+thesis/*.aux
+thesis/*.log
+thesis/*.toc
+thesis/*.out
+thesis/*.bbl
+thesis/*.blg
+thesis/*.bcf
+thesis/*.run.xml
+thesis/*.synctex.gz
+thesis/*.fdb_latexmk
+thesis/*.fls
+thesis/*.xdv
+
+# xv6 build outputs (按需增减)
+*~
+_*
+*.o
+*.d
+*.asm
+*.sym
+*.img
+vectors.S
+bootblock
+entryother
+initcode
+initcode.out
+kernelmemfs
+mkfs
+kernel/kernel
+user/usys.S
+.gdbinit
+TAGS
+
