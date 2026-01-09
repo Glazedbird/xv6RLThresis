@@ -15,12 +15,20 @@
           "-outdir=build",
           "%DOC%"
         ]
+      },
+      {
+        "name" : "copy-pdf",
+        "command": "bash",
+        "args": [
+          "-c",
+          "cp build/$(basename %DOC% .tex).pdf ./"
+        ]
       }
     ],
     "latex-workshop.latex.recipes": [
       {
-        "name": "latexmk (xelatex)",
-        "tools": ["latexmk-xelatex"]
+        "name": "latexmk (xelatex) + copy pdf",
+        "tools": ["latexmk-xelatex", "copy-pdf"]
       }
     ],
     "latex-workshop.latex.autoBuild.run": "never",
