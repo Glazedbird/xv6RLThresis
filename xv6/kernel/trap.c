@@ -39,6 +39,7 @@ usertrap(void)
 {
   int which_dev = 0;
 
+  // 这个是为了看trap的来源是不是user-mode，如果没有就直接panic
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 

@@ -7,6 +7,7 @@
 #include "proc.h"
 #include "vm.h"
 
+// 包装参数成为系统调用
 uint64
 sys_exit(void)
 {

@@ -110,7 +110,8 @@ static struct proc*
 allocproc(void)
 {
   struct proc *p;
-
+  // #3 这个地方p是一个指针，它这个地方为什么
+  // 这个&proc[NROC]是最后一个proc的地址 
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state == UNUSED) {
@@ -221,9 +222,10 @@ userinit(void)
 {
   struct proc *p;
 
+  // #2 所以一个进程的开始就是调用这个allocproc()
   p = allocproc();
   initproc = p;
-  
+  // #1 没太看懂这里的namei是干嘛的？
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
