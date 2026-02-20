@@ -114,3 +114,12 @@ sys_freemem(void)
 {
   return freemem();
 }
+
+//为什么不用担心页表在遍历过程中被释放？
+uint64 
+sys_vmprint(void)
+{
+  struct proc* p = myproc();
+  vmprint(p -> pagetable);
+  return 0;
+}

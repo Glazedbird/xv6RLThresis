@@ -110,3 +110,8 @@ freemem:
  li a7, SYS_freemem
  ecall
  ret
+.global vmprint
+vmprint:
+ li a7, SYS_vmprint
+ ecall
+ ret
