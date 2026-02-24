@@ -18,6 +18,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 extern char trampoline[]; // trampoline.S
 
 // Make a direct-map page table for the kernel.
+// 构建一个完整的内核页表，以及建立内存映射关系的
 pagetable_t
 kvmmake(void)
 {
