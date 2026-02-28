@@ -428,10 +428,14 @@ scheduler(void)
 {
   struct proc* p;
   struct cpu* c = mycpu();
-  
+  c -> proc = 0;
+
   while(1)
   {
+    //是因为有可能在别的process可能在waiting状态，同时在进入scheduler的时候进程可能会将interrupt关掉，所以在这里打开避免一直关闭，导致死锁。
+    //interrupt会导致process的state发生变化，所以需要在整个循环中打开一次。
     intr_on();
+    //如果在wfi前，中断到达，则会死锁，所以需要关闭这个interrupt。
     intr_off();
      
     int found = 0;
@@ -441,9 +445,11 @@ scheduler(void)
       if(p -> state == RUNNABLE)
       {
         p -> state = RUNNING;
-        //这个found后面还需要初始化为0吗。
-        found = 1;
+        c -> proc = p;
         swtch(&c->context, &p->context);
+
+        c -> proc = 0;
+        found = 1;
       }
       //release应该是循环内还是循环外？
       release(&p->lock);
