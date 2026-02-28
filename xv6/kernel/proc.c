@@ -493,14 +493,15 @@ sched(void)
 }
 
 // Give up the CPU for one scheduling round.
+// 其实可以看出来，
 void
 yield(void)
 {
-  struct proc *p = myproc();
-  acquire(&p->lock);
-  p->state = RUNNABLE;
+  struct proc* p = myproc();
+  acquire(&p -> lock);
+  p -> state = RUNNABLE;
   sched();
-  release(&p->lock);
+  release(&p -> lock);
 }
 
 // A fork child's very first scheduling by scheduler()
@@ -542,49 +543,43 @@ forkret(void)
 
 // Sleep on channel chan, releasing condition lock lk.
 // Re-acquires lk when awakened.
+// p的chan直接就在函数中解决了没有放到别的函数中，这样直接约定解决了。
 void
 sleep(void *chan, struct spinlock *lk)
 {
-  struct proc *p = myproc();
-  
-  // Must acquire p->lock in order to
-  // change p->state and then call sched.
-  // Once we hold p->lock, we can be
-  // guaranteed that we won't miss any wakeup
-  // (wakeup locks p->lock),
-  // so it's okay to release lk.
+  struct proc* p = myproc();
 
-  acquire(&p->lock);  //DOC: sleeplock1
+  acquire(&p -> lock);
   release(lk);
-
-  // Go to sleep.
-  p->chan = chan;
-  p->state = SLEEPING;
-
+  
+  p -> state = SLEEPING;
+  p -> chan = chan;
+  
   sched();
 
-  // Tidy up.
-  p->chan = 0;
+  p -> chan = 0;
 
-  // Reacquire original lock.
-  release(&p->lock);
+  release(&p -> lock);
   acquire(lk);
 }
 
 // Wake up all processes sleeping on channel chan.
 // Caller should hold the condition lock.
+// 自己不需要wakeup自己
 void
 wakeup(void *chan)
 {
   struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        p->state = RUNNABLE;
+  for(p = proc; p < &proc[NPROC]; p++) 
+  {
+    if(p != myproc())
+    {
+      acquire(&p -> lock);
+      if(p -> state == SLEEPING && p -> chan == chan)
+      {
+        p -> state = RUNNABLE;
       }
-      release(&p->lock);
+      release(& p -> lock);
     }
   }
 }
