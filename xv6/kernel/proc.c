@@ -470,22 +470,26 @@ scheduler(void)
 // there's no process.
 void
 sched(void)
-{
+{ 
+  struct proc* p = myproc();
   int intena;
-  struct proc *p = myproc();
 
-  if(!holding(&p->lock))
+  if(!holding(&p -> lock))
     panic("sched p->lock");
+  // 没有多余的pushoff或者popoff
   if(mycpu()->noff != 1)
     panic("sched locks");
-  if(p->state == RUNNING)
-    panic("sched RUNNING");
+  // lock的时候不能有interrupt开着
   if(intr_get())
-    panic("sched interruptible");
+    panic("sched interrupt");
+  // 状态不能是RUNNING
+  if(p -> state == RUNNING)
+    panic("sched RUNNING");
 
-  intena = mycpu()->intena;
+  // cpu层面上换线程，但是intena实际上是线程的性质
+  intena = mycpu() -> intena;
   swtch(&p->context, &mycpu()->context);
-  mycpu()->intena = intena;
+  mycpu() -> intena = intena;
 }
 
 // Give up the CPU for one scheduling round.
