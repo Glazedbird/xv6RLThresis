@@ -94,6 +94,13 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  // 强化学习观察字段 
+  uint64 m_sched_count;        //每次在scheduler中真正选中并且切到这个进程前 + 1（被调度的次数） 
+  uint64 m_run_ticks;          // 运行获得一个tick，就加一
+  uint64 m_wait_ticks;         // 
+  uint64 m_last_scheduled_tick;
+  int rl_state;
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
@@ -108,3 +115,4 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+

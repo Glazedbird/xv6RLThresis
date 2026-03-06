@@ -55,6 +55,11 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
+      p->m_last_scheduled_tick = 0;
+      p->m_run_ticks = 0;
+      p->m_sched_count = 0;
+      p->m_wait_ticks = 0;
+      p->rl_state = -1;
   }
 }
 
@@ -447,6 +452,11 @@ scheduler(void)
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
+
+        // RL change
+        p->m_sched_count++;
+        p->m_last_scheduled_tick = ticks;
+
         c->proc = p;
         swtch(&c->context, &p->context);
 
@@ -678,7 +688,7 @@ procdump(void)
   struct proc *p;
   char *state;
 
-  printf("\n");
+  printf("\n"); 
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
@@ -686,7 +696,44 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
+    printf("pid=%d state=%s name=%s last=%ld run=%ld sched=%ld wait=%ld rl=%d",
+       p->pid,
+       state,
+       p->name,
+       p->m_last_scheduled_tick,
+       p->m_run_ticks,
+       p->m_sched_count,
+       p->m_wait_ticks,
+       p->rl_state);
+
     printf("\n");
+  }
+}
+
+
+// RLchange
+void
+update_sched_stats(void)
+{
+  struct proc *p;
+  struct proc *cur = myproc();
+
+  if(cur != 0){
+    acquire(&cur->lock);
+    if(cur->state == RUNNING){
+      cur-> m_run_ticks++;
+    }
+    release(&cur->lock);
+  }
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p == cur)
+      continue;
+
+    acquire(&p->lock);
+    if(p->state == RUNNABLE){
+      p->m_wait_ticks++;
+    }
+    release(&p->lock);
   }
 }
