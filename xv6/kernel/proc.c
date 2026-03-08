@@ -6,6 +6,12 @@
 #include "proc.h"
 #include "defs.h"
 
+//RL change
+int alpha = 100;   // 0.1
+int gamma = 900;   // 0.9
+int qtable[NSTATE];
+struct spinlock qtable_lock;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -51,6 +57,7 @@ procinit(void)
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&qtable_lock, "qtable_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->state = UNUSED;
@@ -432,43 +439,55 @@ void
 scheduler(void)
 {
   struct proc *p;
+  struct proc *best;
   struct cpu *c = mycpu();
+  int best_state = -1;
+  int best_score = 0;
 
   c->proc = 0;
   for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
     intr_on();
     intr_off();
 
-    int found = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
+    best = 0;
+    best_state = -1;
+
+    for(p = proc; p < &proc[NPROC]; p++){
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
 
-        // RL change
-        p->m_sched_count++;
-        p->m_last_scheduled_tick = ticks;
-
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+      if(p->state != RUNNABLE){
+        release(&p->lock);
+        continue;
       }
-      release(&p->lock);
+
+      int state = encode_state(p);
+      int score = qtable[state];
+
+      if(best == 0 || score > best_score){
+        if(best != 0)
+          release(&best->lock);
+
+        best = p;
+        best_state = state;
+        best_score = score;
+      } else {
+        release(&p->lock);
+      }
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+
+    if(best){
+      best->rl_state = best_state;
+      best->m_sched_count++;
+      best->m_last_scheduled_tick = ticks;
+
+      best->state = RUNNING;
+      c->proc = best;
+
+      swtch(&c->context, &best->context);
+
+      c->proc = 0;
+      release(&best->lock);
+    } else {
       asm volatile("wfi");
     }
   }
@@ -736,4 +755,47 @@ update_sched_stats(void)
     }
     release(&p->lock);
   }
+}
+
+// RLchange
+int encode_state(struct proc *p)
+{
+    int w;
+    int r;
+
+    // waiting bucket
+    if(p->m_wait_ticks < 5)
+        w = 0;
+    else if(p->m_wait_ticks < 20)
+        w = 1;
+    else
+        w = 2;
+
+    // run count bucket
+    if(p->m_sched_count < 2)
+        r = 0;
+    else if(p->m_sched_count < 5)
+        r = 1;
+    else
+        r = 2;
+
+    // system load bucket
+    // if(runnable < 3)
+    //     l = 0;
+    // else if(runnable < 6)
+    //     l = 1;
+    // else
+    //     l = 2;
+
+    return w*3 + r;
+}
+
+// RL change
+void
+update_qtable(int state, int next_state, double reward)
+{
+    acquire(&qtable_lock);
+    qtable[state] = qtable[state] +
+        (alpha * (reward + gamma * qtable[next_state] - qtable[state]))/SCALE;
+    release(&qtable_lock);
 }

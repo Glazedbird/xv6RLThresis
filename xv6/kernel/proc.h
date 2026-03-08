@@ -1,5 +1,10 @@
 // Saved registers for kernel context switches.
 // 寄存器组中
+// RL change
+#define NWAIT_BUCKET 3
+#define NSCHED_BUCKET 3
+#define NSTATE (NWAIT_BUCKET * NSCHED_BUCKET)
+#define SCALE 1000
 struct context {
   uint64 ra;
   uint64 sp;
