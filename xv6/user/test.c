@@ -1,10 +1,9 @@
 #include "user/user.h"
 
 int main() {
-    printf("before\n");
-    vmprint();
-    sbrk(1);
-    printf("after\n");
-    vmprint();
-    exit(0);
+    int counter = 0;
+    for(volatile long i = 0; i < 100000000; i++){
+        counter ++;
+    }
+    printf("%d", counter);
 }

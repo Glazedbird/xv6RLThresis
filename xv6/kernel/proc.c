@@ -451,7 +451,7 @@ scheduler(void)
 
     best = 0;
     best_state = -1;
-
+    best_score = 0;
     for(p = proc; p < &proc[NPROC]; p++){
       acquire(&p->lock);
 
@@ -462,6 +462,7 @@ scheduler(void)
 
       int state = encode_state(p);
       int score = qtable[state];
+      p->rl_state = state;
 
       if(best == 0 || score > best_score){
         if(best != 0)
@@ -485,6 +486,13 @@ scheduler(void)
 
       swtch(&c->context, &best->context);
 
+      int terminal = 0;
+      //更新Qtable的逻辑
+      if(best->state == ZOMBIE){
+        terminal = 1;
+      }
+      int reward = compute_reward(best, best->rl_state);
+      update_qtable(best->rl_state, encode_state(best), reward, terminal);
       c->proc = 0;
       release(&best->lock);
     } else {
@@ -704,29 +712,45 @@ procdump(void)
   [RUNNING]   "run   ",
   [ZOMBIE]    "zombie"
   };
+
   struct proc *p;
   char *state;
+  int w, s;
+  int idx;
 
-  printf("\n"); 
+  printf("\n");
+  printf("===== process dump =====\n");
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
+
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
       state = "???";
-    printf("pid=%d state=%s name=%s last=%ld run=%ld sched=%ld wait=%ld rl=%d",
-       p->pid,
-       state,
-       p->name,
-       p->m_last_scheduled_tick,
-       p->m_run_ticks,
-       p->m_sched_count,
-       p->m_wait_ticks,
-       p->rl_state);
 
-    printf("\n");
+    printf("pid=%d state=%s name=%s last=%ld run=%ld sched=%ld wait=%ld rl=%d\n",
+      p->pid,
+      state,
+      p->name,
+      p->m_last_scheduled_tick,
+      p->m_run_ticks,
+      p->m_sched_count,
+      p->m_wait_ticks,
+      p->rl_state);
   }
+
+  printf("===== qtable dump =====\n");
+  acquire(&qtable_lock);
+  for(w = 0; w < 3; w++){
+    for(s = 0; s < 3; s++){
+      idx = w * 3 + s;
+      printf("state(w=%d,s=%d)[%d] = %d\n", w, s, idx, qtable[idx]);
+    }
+  }
+  release(&qtable_lock);
+
+  printf("=======================\n");
 }
 
 
@@ -792,10 +816,49 @@ int encode_state(struct proc *p)
 
 // RL change
 void
-update_qtable(int state, int next_state, double reward)
+update_qtable(int old_state, int next_state, int reward, int terminal)
 {
+    int next_value = 0;
+    int reward_scaled = reward * SCALE;
+    int td_target;
+    int td_error;
+    int delta;
+
     acquire(&qtable_lock);
-    qtable[state] = qtable[state] +
-        (alpha * (reward + gamma * qtable[next_state] - qtable[state]))/SCALE;
+
+    if(!terminal)
+        next_value = qtable[next_state];
+
+    // td_target = reward + gamma * next_value
+    td_target = reward_scaled + (gamma * next_value) / SCALE;
+
+    // td_error = td_target - current_value
+    td_error = td_target - qtable[old_state];
+
+    // delta = alpha * td_error
+    delta = (alpha * td_error) / SCALE;
+
+    qtable[old_state] += delta;
+
     release(&qtable_lock);
+}
+
+int
+state_wait_bucket(int state)
+{
+    return state / 3;
+}
+
+int
+compute_reward(struct proc *p, int old_state)
+{
+    int reward = 1;
+
+    if(p->state == ZOMBIE)
+        reward += 10;
+
+    if(state_wait_bucket(old_state) == 2)
+        reward += 2;
+
+    return reward;
 }
