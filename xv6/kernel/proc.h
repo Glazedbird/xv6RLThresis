@@ -94,6 +94,18 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  // 实验统计指标
+  uint64 c_time;            // creation time     有效条件:p->stated == USED && p->c_time != -1;
+  
+  uint64 e_time;            // end time          有效条件:p->e_time != -1; && p->state == ZOMBIE
+
+  uint64 ru_time;           // running time
+  uint64 rw_time;           // runnable (waiting) time
+  uint64 s_time;            // sleeping time
+
+  uint64 first_run_time;   // first scheduled time 
+  uint64 m_sched_times
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 

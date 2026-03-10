@@ -55,6 +55,12 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
+      p->c_time = -1;
+      p->e_time = -1;
+      p->s_time = -1;
+      p->ru_time = -1;
+      p->rw_time = -1;
+      p->first_run_time = -1;
   }
 }
 
@@ -146,6 +152,10 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  acquire(&tickslock);
+  p->c_time = ticks;
+  release(&tickslock);
 
   return p;
 }
@@ -362,6 +372,9 @@ kexit(int status)
 
   release(&wait_lock);
 
+  acquire(&tickslock);
+  p->e_time = ticks;
+  release(&tickslock);
   // Jump into the scheduler, never to return.
   sched();
   panic("zombie exit");
