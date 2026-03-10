@@ -55,12 +55,12 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
-      p->c_time = -1;
-      p->e_time = -1;
-      p->s_time = -1;
-      p->ru_time = -1;
-      p->rw_time = -1;
-      p->first_run_time = -1;
+      p->c_time = 0;
+      p->e_time = 0;
+      p->m_run_ticks = 0;
+      p->m_sleep_ticks = 0;
+      p->m_wait_ticks = 0;
+      p->first_run_time = 0;
       p->m_sched_count = 0;
   }
 }
@@ -685,23 +685,95 @@ procdump(void)
   static char *states[] = {
   [UNUSED]    "unused",
   [USED]      "used",
-  [SLEEPING]  "sleep ",
+  [SLEEPING]  "sleep",
   [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
+  [RUNNING]   "run",
   [ZOMBIE]    "zombie"
   };
+
   struct proc *p;
   char *state;
+  uint64 resp;
+  uint64 turn;
 
   printf("\n");
+
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
+
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
+
+    printf("pid=%d state=%s name=%s ", p->pid, state, p->name);
+
+    printf("run=%ld wait=%ld sleep=%ld sched=%ld ",
+      p->m_run_ticks,
+      p->m_wait_ticks,
+      p->m_sleep_ticks,
+      p->m_sched_count);
+
+    if(p->c_time)
+      printf("ctime=%ld ", p->c_time);
+    else
+      printf("ctime=- ");
+
+    if(p->first_run_time)
+      printf("first=%ld ", p->first_run_time);
+    else
+      printf("first=- ");
+
+    if(p->e_time)
+      printf("etime=%ld ", p->e_time);
+    else
+      printf("etime=- ");
+
+    if(p->c_time && p->first_run_time){
+      resp = p->first_run_time - p->c_time;
+      printf("resp=%ld ", resp);
+    } else {
+      printf("resp=- ");
+    }
+
+    if(p->c_time && p->e_time){
+      turn = p->e_time - p->c_time;
+      printf("turn=%ld", turn);
+    } else {
+      printf("turn=-");
+    }
+
     printf("\n");
+  }
+}
+
+// RLchange
+void
+update_sched_stats(void)
+{
+  struct proc *p;
+  struct proc *cur = myproc();
+
+  if(cur != 0){
+    acquire(&cur->lock);
+    if(cur->state == RUNNING){
+      cur-> m_run_ticks++;
+    }
+    release(&cur->lock);
+  }
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p == cur)
+      continue;
+
+    acquire(&p->lock);
+    if(p->state == RUNNABLE){
+      p->m_wait_ticks++;
+    }
+    if(p->state == SLEEPING) {
+      p->m_sleep_ticks++;
+    }
+    release(&p->lock);
   }
 }
