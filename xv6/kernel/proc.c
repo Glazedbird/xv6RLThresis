@@ -61,6 +61,7 @@ procinit(void)
       p->ru_time = -1;
       p->rw_time = -1;
       p->first_run_time = -1;
+      p->m_sched_count = 0;
   }
 }
 
@@ -130,6 +131,9 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+
+    // 统计字段裸读
+  p->c_time = ticks;
   p->state = USED;
 
   // Allocate a trapframe page.
@@ -152,10 +156,6 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
-  acquire(&tickslock);
-  p->c_time = ticks;
-  release(&tickslock);
 
   return p;
 }
@@ -369,12 +369,11 @@ kexit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-
+  // 统计字段 裸读
+  p->e_time = ticks;
   release(&wait_lock);
 
-  acquire(&tickslock);
-  p->e_time = ticks;
-  release(&tickslock);
+
   // Jump into the scheduler, never to return.
   sched();
   panic("zombie exit");
@@ -457,8 +456,15 @@ scheduler(void)
       acquire(&p->lock);
       if(p -> state == RUNNABLE)
       {
+        if(p->m_sched_count == 0)
+        {
+          //统计字段裸读
+          p->first_run_time = ticks;
+        }
+      
         p -> state = RUNNING;
         c -> proc = p;
+        p -> m_sched_count ++;
         swtch(&c->context, &p->context);
 
         c -> proc = 0;

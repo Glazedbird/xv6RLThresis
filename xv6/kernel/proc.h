@@ -103,8 +103,8 @@ struct proc {
   uint64 rw_time;           // runnable (waiting) time
   uint64 s_time;            // sleeping time
 
-  uint64 first_run_time;   // first scheduled time 
-  uint64 m_sched_times
+  uint64 first_run_time;   // first scheduled time 有效条件:USED and m_sched_count>=1
+  uint64 m_sched_count;
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
