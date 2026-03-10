@@ -104,6 +104,9 @@ struct proc {
 
   uint64 first_run_time;   // first scheduled time 有效条件:USED and m_sched_count>=1
   uint64 m_sched_count;
+  
+  // 优先级调度
+  uint64 m_priority;
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

@@ -62,6 +62,7 @@ procinit(void)
       p->m_wait_ticks = 0;
       p->first_run_time = 0;
       p->m_sched_count = 0;
+      p->m_priority = 10;
   }
 }
 
@@ -438,48 +439,55 @@ kwait(uint64 addr)
 void
 scheduler(void)
 {
-  struct proc* p;
-  struct cpu* c = mycpu();
-  c -> proc = 0;
+  struct proc *p;
+  struct proc *best;
+  struct cpu *c = mycpu();
 
-  while(1)
-  {
-    //是因为有可能在别的process可能在waiting状态，同时在进入scheduler的时候进程可能会将interrupt关掉，所以在这里打开避免一直关闭，导致死锁。
-    //interrupt会导致process的state发生变化，所以需要在整个循环中打开一次。
+  c->proc = 0;
+  for(;;){
     intr_on();
-    //如果在wfi前，中断到达，则会死锁，所以需要关闭这个interrupt。
     intr_off();
-     
-    int found = 0;
-    for(p = proc; p < &proc[NPROC]; p ++)
-    { 
-      acquire(&p->lock);
-      if(p -> state == RUNNABLE)
-      {
-        if(p->m_sched_count == 0)
-        {
-          //统计字段裸读
-          p->first_run_time = ticks;
-        }
-      
-        p -> state = RUNNING;
-        c -> proc = p;
-        p -> m_sched_count ++;
-        swtch(&c->context, &p->context);
 
-        c -> proc = 0;
-        found = 1;
+    best = 0;
+
+    for(p = proc; p < &proc[NPROC]; p++){
+      acquire(&p->lock);
+
+      if(p->state != RUNNABLE){
+        release(&p->lock);
+        continue;
       }
-      //release应该是循环内还是循环外？
-      release(&p->lock);
+
+      if(best == 0){
+        best = p;
+        continue;
+      }
+
+      if(p->m_priority > best->m_priority ||
+         (p->m_priority == best->m_priority &&
+          p->m_sched_count < best->m_sched_count)){
+        release(&best->lock);
+        best = p;
+      } else {
+        release(&p->lock);
+      }
     }
 
-    if(found == 0){
+    if(best != 0){
+      if(best->m_sched_count == 0){
+        best->first_run_time = ticks;
+      }
+      best->m_sched_count++;
+      best->state = RUNNING;
+      c->proc = best;
+      swtch(&c->context, &best->context);
+      c->proc = 0;
+      release(&best->lock);
+    } else {
       asm volatile("wfi");
     }
   }
 }
-
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
@@ -709,11 +717,12 @@ procdump(void)
 
     printf("pid=%d state=%s name=%s ", p->pid, state, p->name);
 
-    printf("run=%ld wait=%ld sleep=%ld sched=%ld ",
+    printf("run=%ld wait=%ld sleep=%ld sched=%ld prioirty=%ld ",
       p->m_run_ticks,
       p->m_wait_ticks,
       p->m_sleep_ticks,
-      p->m_sched_count);
+      p->m_sched_count,
+      p->m_priority);
 
     if(p->c_time)
       printf("ctime=%ld ", p->c_time);

@@ -115,3 +115,8 @@ vmprint:
  li a7, SYS_vmprint
  ecall
  ret
+.global setpriority
+setpriority:
+ li a7, SYS_setpriority
+ ecall
+ ret

@@ -123,3 +123,21 @@ sys_vmprint(void)
   vmprint(p -> pagetable);
   return 0;
 }
+
+uint64
+sys_setpriority(void)
+{
+  int prio;
+  struct proc *p = myproc();
+
+  argint(0, &prio);
+  if(prio < 0)
+    return -1;
+
+  //sys系统调用中默认一定有proc，所以不需要考虑0的情况。
+  acquire(&p->lock);
+  p->m_priority = prio;
+  release(&p->lock);
+
+  return 0;
+}
