@@ -814,15 +814,49 @@ procdump(void)
     else
       state = "???";
 
-    printf("pid=%d state=%s name=%s last=%ld run=%ld sched=%ld wait=%ld rl=%d\n",
+    printf("pid=%d state=%s name=%s ",
       p->pid,
       state,
-      p->name,
+      p->name);
+
+    printf("last=%ld run=%ld wait=%ld sleep=%ld sched=%ld rl=%d ",
       p->m_last_scheduled_tick,
       p->m_run_ticks,
-      p->m_sched_count,
       p->m_wait_ticks,
+      p->m_sleep_ticks,
+      p->m_sched_count,
       p->rl_state);
+
+    if(p->c_time)
+      printf("ctime=%ld ", p->c_time);
+    else
+      printf("ctime=- ");
+
+    if(p->first_run_time)
+      printf("first=%ld ", p->first_run_time);
+    else
+      printf("first=- ");
+
+    if(p->e_time)
+      printf("etime=%ld ", p->e_time);
+    else
+      printf("etime=- ");
+
+    if(p->c_time && p->first_run_time){
+      resp = p->first_run_time - p->c_time;
+      printf("resp=%ld ", resp);
+    } else {
+      printf("resp=- ");
+    }
+
+    if(p->c_time && p->e_time){
+      turn = p->e_time - p->c_time;
+      printf("turn=%ld", turn);
+    } else {
+      printf("turn=-");
+    }
+
+    printf("\n");
   }
 
   printf("===== qtable dump =====\n");
@@ -837,8 +871,6 @@ procdump(void)
 
   printf("=======================\n");
 }
-
-
 // RLchange
 void
 update_sched_stats(void)
