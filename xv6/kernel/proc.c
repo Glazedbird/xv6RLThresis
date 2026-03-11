@@ -179,6 +179,13 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->c_time = 0;
+  p->e_time = 0;
+  p->m_run_ticks = 0;
+  p->m_sleep_ticks = 0;
+  p->m_wait_ticks = 0;
+  p->first_run_time = 0;
+  p->m_sched_count = 0;
   p->state = UNUSED;
 }
 
