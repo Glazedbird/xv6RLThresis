@@ -122,3 +122,13 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+struct pstat {
+  uint64 c_time;
+  uint64 e_time;
+  uint64 m_run_ticks;
+  uint64 m_wait_ticks;
+  uint64 m_sleep_ticks;
+  uint64 first_run_time;
+  uint64 m_sched_count;
+};

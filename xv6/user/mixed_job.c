@@ -11,7 +11,7 @@ int main()
             x += i;
 
         if(r % 5 == 0)
-            sleep(5);
+            pause(5);
     }
 
     exit(0);

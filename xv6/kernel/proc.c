@@ -180,6 +180,13 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->c_time = 0;
+  p->e_time = 0;
+  p->m_run_ticks = 0;
+  p->m_sleep_ticks = 0;
+  p->m_wait_ticks = 0;
+  p->first_run_time = 0;
+  p->m_sched_count = 0;
   p->state = UNUSED;
 }
 
@@ -429,6 +436,67 @@ kwait(uint64 addr)
   }
 }
 
+int
+kwaitstat(uint64 addr_status, uint64 addr_stat)
+{
+  struct proc *pp;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    havekids = 0;
+    for(pp = proc; pp < &proc[NPROC]; pp++){
+      if(pp->parent == p){
+        acquire(&pp->lock);
+        havekids = 1;
+
+        if(pp->state == ZOMBIE){
+          pid = pp->pid;
+
+          if(addr_status != 0 &&
+             copyout(p->pagetable, addr_status,
+                     (char *)&pp->xstate, sizeof(pp->xstate)) < 0){
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          struct pstat st;
+          st.c_time = pp->c_time;
+          st.e_time = pp->e_time;
+          st.m_run_ticks = pp->m_run_ticks;
+          st.m_wait_ticks = pp->m_wait_ticks;
+          st.m_sleep_ticks = pp->m_sleep_ticks;
+          st.first_run_time = pp->first_run_time;
+          st.m_sched_count = pp->m_sched_count;
+
+          if(addr_stat != 0 &&
+             copyout(p->pagetable, addr_stat,
+                     (char *)&st, sizeof(st)) < 0){
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          freeproc(pp);
+          release(&pp->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&pp->lock);
+      }
+    }
+
+    if(!havekids || killed(p)){
+      release(&wait_lock);
+      return -1;
+    }
+
+    sleep(p, &wait_lock);
+  }
+}
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:

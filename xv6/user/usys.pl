@@ -45,3 +45,4 @@ entry("uptime");
 entry("freemem");
 entry("vmprint");
 entry("setpriority");
+entry("waitstat");

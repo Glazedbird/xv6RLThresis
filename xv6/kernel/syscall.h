@@ -23,3 +23,4 @@
 #define SYS_freemem 22
 #define SYS_setpriority 23
 #define SYS_vmprint 24
+#define SYS_waitstat 25

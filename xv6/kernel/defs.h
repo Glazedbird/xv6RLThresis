@@ -103,6 +103,7 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 void            update_sched_stats(void);
+int             kwaitstat(uint64 addr_status, uint64 addr_stat);
 // swtch.S
 void            swtch(struct context*, struct context*);
 

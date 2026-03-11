@@ -118,5 +118,8 @@ vmprint:
 .global setpriority
 setpriority:
  li a7, SYS_setpriority
+.global waitstat
+waitstat:
+ li a7, SYS_waitstat
  ecall
  ret
