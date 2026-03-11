@@ -62,10 +62,14 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
-      p->m_last_scheduled_tick = 0;
+      p->c_time = 0;
+      p->e_time = 0;
       p->m_run_ticks = 0;
-      p->m_sched_count = 0;
+      p->m_sleep_ticks = 0;
       p->m_wait_ticks = 0;
+      p->first_run_time = 0;
+      p->m_sched_count = 0;
+      p->m_last_scheduled_tick = 0;
       p->rl_state = -1;
   }
 }
@@ -136,6 +140,9 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+
+    // 统计字段裸读
+  p->c_time = ticks;
   p->state = USED;
 
   // Allocate a trapframe page.
@@ -181,6 +188,15 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->c_time = 0;
+  p->e_time = 0;
+  p->m_run_ticks = 0;
+  p->m_sleep_ticks = 0;
+  p->m_wait_ticks = 0;
+  p->first_run_time = 0;
+  p->m_sched_count = 0;
+  p->m_last_scheduled_tick = 0;
+  p->rl_state = -1;
   p->state = UNUSED;
 }
 
@@ -371,8 +387,10 @@ kexit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-
+  // 统计字段 裸读
+  p->e_time = ticks;
   release(&wait_lock);
+
 
   // Jump into the scheduler, never to return.
   sched();
@@ -428,6 +446,67 @@ kwait(uint64 addr)
   }
 }
 
+int
+kwaitstat(uint64 addr_status, uint64 addr_stat)
+{
+  struct proc *pp;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    havekids = 0;
+    for(pp = proc; pp < &proc[NPROC]; pp++){
+      if(pp->parent == p){
+        acquire(&pp->lock);
+        havekids = 1;
+
+        if(pp->state == ZOMBIE){
+          pid = pp->pid;
+
+          if(addr_status != 0 &&
+             copyout(p->pagetable, addr_status,
+                     (char *)&pp->xstate, sizeof(pp->xstate)) < 0){
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          struct pstat st;
+          st.c_time = pp->c_time;
+          st.e_time = pp->e_time;
+          st.m_run_ticks = pp->m_run_ticks;
+          st.m_wait_ticks = pp->m_wait_ticks;
+          st.m_sleep_ticks = pp->m_sleep_ticks;
+          st.first_run_time = pp->first_run_time;
+          st.m_sched_count = pp->m_sched_count;
+
+          if(addr_stat != 0 &&
+             copyout(p->pagetable, addr_stat,
+                     (char *)&st, sizeof(st)) < 0){
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          freeproc(pp);
+          release(&pp->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&pp->lock);
+      }
+    }
+
+    if(!havekids || killed(p)){
+      release(&wait_lock);
+      return -1;
+    }
+
+    sleep(p, &wait_lock);
+  }
+}
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -447,6 +526,7 @@ scheduler(void)
   c->proc = 0;
   for(;;){
     intr_on();
+    //如果在wfi前，中断到达，则会死锁，所以需要关闭这个interrupt。
     intr_off();
 
     best = 0;
@@ -477,6 +557,9 @@ scheduler(void)
     }
 
     if(best){
+      if(best->first_run_time == 0){
+        best->first_run_time = ticks;
+      }
       best->rl_state = best_state;
       best->m_sched_count++;
       best->m_last_scheduled_tick = ticks;
@@ -510,33 +593,38 @@ scheduler(void)
 // there's no process.
 void
 sched(void)
-{
+{ 
+  struct proc* p = myproc();
   int intena;
-  struct proc *p = myproc();
 
-  if(!holding(&p->lock))
+  if(!holding(&p -> lock))
     panic("sched p->lock");
+  // 没有多余的pushoff或者popoff
   if(mycpu()->noff != 1)
     panic("sched locks");
-  if(p->state == RUNNING)
-    panic("sched RUNNING");
+  // lock的时候不能有interrupt开着
   if(intr_get())
-    panic("sched interruptible");
+    panic("sched interrupt");
+  // 状态不能是RUNNING
+  if(p -> state == RUNNING)
+    panic("sched RUNNING");
 
-  intena = mycpu()->intena;
+  // cpu层面上换线程，但是intena实际上是线程的性质
+  intena = mycpu() -> intena;
   swtch(&p->context, &mycpu()->context);
-  mycpu()->intena = intena;
+  mycpu() -> intena = intena;
 }
 
 // Give up the CPU for one scheduling round.
+// 其实可以看出来，
 void
 yield(void)
 {
-  struct proc *p = myproc();
-  acquire(&p->lock);
-  p->state = RUNNABLE;
+  struct proc* p = myproc();
+  acquire(&p -> lock);
+  p -> state = RUNNABLE;
   sched();
-  release(&p->lock);
+  release(&p -> lock);
 }
 
 // A fork child's very first scheduling by scheduler()
@@ -578,49 +666,43 @@ forkret(void)
 
 // Sleep on channel chan, releasing condition lock lk.
 // Re-acquires lk when awakened.
+// p的chan直接就在函数中解决了没有放到别的函数中，这样直接约定解决了。
 void
 sleep(void *chan, struct spinlock *lk)
 {
-  struct proc *p = myproc();
-  
-  // Must acquire p->lock in order to
-  // change p->state and then call sched.
-  // Once we hold p->lock, we can be
-  // guaranteed that we won't miss any wakeup
-  // (wakeup locks p->lock),
-  // so it's okay to release lk.
+  struct proc* p = myproc();
 
-  acquire(&p->lock);  //DOC: sleeplock1
+  acquire(&p -> lock);
   release(lk);
-
-  // Go to sleep.
-  p->chan = chan;
-  p->state = SLEEPING;
-
+  
+  p -> state = SLEEPING;
+  p -> chan = chan;
+  
   sched();
 
-  // Tidy up.
-  p->chan = 0;
+  p -> chan = 0;
 
-  // Reacquire original lock.
-  release(&p->lock);
+  release(&p -> lock);
   acquire(lk);
 }
 
 // Wake up all processes sleeping on channel chan.
 // Caller should hold the condition lock.
+// 自己不需要wakeup自己
 void
 wakeup(void *chan)
 {
   struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        p->state = RUNNABLE;
+  for(p = proc; p < &proc[NPROC]; p++) 
+  {
+    if(p != myproc())
+    {
+      acquire(&p -> lock);
+      if(p -> state == SLEEPING && p -> chan == chan)
+      {
+        p -> state = RUNNABLE;
       }
-      release(&p->lock);
+      release(& p -> lock);
     }
   }
 }
@@ -707,9 +789,9 @@ procdump(void)
   static char *states[] = {
   [UNUSED]    "unused",
   [USED]      "used",
-  [SLEEPING]  "sleep ",
+  [SLEEPING]  "sleep",
   [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
+  [RUNNING]   "run",
   [ZOMBIE]    "zombie"
   };
 
@@ -717,9 +799,12 @@ procdump(void)
   char *state;
   int w, s;
   int idx;
+  uint64 resp;
+  uint64 turn;
 
   printf("\n");
   printf("===== process dump =====\n");
+
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;

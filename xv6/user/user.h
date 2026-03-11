@@ -2,6 +2,16 @@
 
 #define SBRK_ERROR ((char *)-1)
 
+struct pstat {
+  uint64 ctime;
+  uint64 etime;
+  uint64 run_ticks;
+  uint64 wait_ticks;
+  uint64 sleep_ticks;
+  uint64 first_run_time;
+  uint64 sched_count;
+};
+
 struct stat;
 
 // system calls
@@ -28,6 +38,7 @@ int pause(int);
 int uptime(void);
 int freemem(void);
 int vmprint(void);
+int waitstat(int *status, struct pstat *st);
 
 // ulib.c
 int stat(const char*, struct stat*);

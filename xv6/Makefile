@@ -147,6 +147,11 @@ UPROGS=\
 	$U/_dorphan\
 	$U/_freememtest\
 	$U/_test\
+	$U/_workload\
+	$U/_cpu_long\
+	$U/_cpu_short\
+	$U/_mixed_job\
+	$U/_sleepy_job\
 	
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

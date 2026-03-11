@@ -100,11 +100,19 @@ struct proc {
   int pid;                     // Process ID
 
   // 强化学习观察字段 
-  uint64 m_sched_count;        //每次在scheduler中真正选中并且切到这个进程前 + 1（被调度的次数） 
-  uint64 m_run_ticks;          // 运行获得一个tick，就加一
-  uint64 m_wait_ticks;         // 
+
   uint64 m_last_scheduled_tick;
   int rl_state;
+  // 实验统计指标
+  uint64 c_time;            // creation time     有效条件:p->stated == USED && p->c_time != -1;
+  uint64 e_time;            // end time          有效条件:p->e_time != -1; && p->state == ZOMBIE
+
+  uint64 m_run_ticks;           // running time
+  uint64 m_wait_ticks;           // runnable (waiting) time
+  uint64 m_sleep_ticks;            // sleeping time
+
+  uint64 first_run_time;   // first scheduled time 有效条件:USED and m_sched_count>=1
+  uint64 m_sched_count;
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
@@ -121,3 +129,12 @@ struct proc {
   char name[16];               // Process name (debugging)
 };
 
+struct pstat {
+  uint64 c_time;
+  uint64 e_time;
+  uint64 m_run_ticks;
+  uint64 m_wait_ticks;
+  uint64 m_sleep_ticks;
+  uint64 first_run_time;
+  uint64 m_sched_count;
+};

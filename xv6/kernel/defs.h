@@ -107,6 +107,7 @@ void            update_qtable(int state, int next_state, int reward, int termina
 int             encode_state(struct proc *p);
 int             compute_reward(struct proc *p, int old_state);
 int             state_wait_bucket(int state);
+int             kwaitstat(uint64 addr_status, uint64 addr_stat);
 // swtch.S
 void            swtch(struct context*, struct context*);
 

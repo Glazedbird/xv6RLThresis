@@ -123,3 +123,13 @@ sys_vmprint(void)
   vmprint(p -> pagetable);
   return 0;
 }
+
+uint64
+sys_waitstat(void)
+{
+  uint64 p;
+  uint64 pp;
+  argaddr(0, &p);
+  argaddr(1, &pp);
+  return kwaitstat(p, pp);
+}
