@@ -115,3 +115,8 @@ vmprint:
  li a7, SYS_vmprint
  ecall
  ret
+.global waitstat
+waitstat:
+ li a7, SYS_waitstat
+ ecall
+ ret
