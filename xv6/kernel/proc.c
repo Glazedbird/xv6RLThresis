@@ -187,6 +187,7 @@ freeproc(struct proc *p)
   p->m_wait_ticks = 0;
   p->first_run_time = 0;
   p->m_sched_count = 0;
+  p->m_priority = 10;
   p->state = UNUSED;
 }
 
@@ -542,7 +543,7 @@ scheduler(void)
     }
 
     if(best != 0){
-      if(best->m_sched_count == 0){
+      if(best->first_run_time == 0){
         best->first_run_time = ticks;
       }
       best->m_sched_count++;
