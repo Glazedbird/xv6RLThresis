@@ -542,7 +542,7 @@ scheduler(void)
       int terminal = (best->state == ZOMBIE);
       c->proc = 0;
       release(&best->lock);
-      
+
       int next_state = build_global_state();
       int reward = compute_reward(state, next_state, terminal);
       rl_update(state, action, next_state, reward, terminal);
@@ -880,11 +880,33 @@ build_global_state(void)
   return rb * NWAIT_BUCKET + wb;
 }
 
+static int rr_cursor = 0;
+
+static struct proc*
+pick_proc_rr(void)
+{
+  for(int off = 0; off < NPROC; off++){
+    int idx = (rr_cursor + off) % NPROC;
+    struct proc *p = &proc[idx];
+
+    acquire(&p->lock);
+    if(p->state == RUNNABLE){
+      rr_cursor = (idx + 1) % NPROC;
+      return p;   // 返回时 lock 仍持有
+    }
+    release(&p->lock);
+  }
+  return 0;
+}
+
 struct proc*
 pick_proc_by_action(int action)
 {
   struct proc *p;
   struct proc *best = 0;
+
+  if(action == ACT_PICK_RR)
+    return pick_proc_rr();
 
   for(p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
@@ -901,7 +923,9 @@ pick_proc_by_action(int action)
 
     switch(action){
     case ACT_PICK_MAX_WAIT:
-      if(p->m_wait_ticks > best->m_wait_ticks){
+      if(p->m_wait_ticks > best->m_wait_ticks ||
+         (p->m_wait_ticks == best->m_wait_ticks &&
+          p->m_sched_count < best->m_sched_count)){
         release(&best->lock);
         best = p;
       } else {
@@ -910,7 +934,9 @@ pick_proc_by_action(int action)
       break;
 
     case ACT_PICK_MIN_SCHED:
-      if(p->m_sched_count < best->m_sched_count){
+      if(p->m_sched_count < best->m_sched_count ||
+         (p->m_sched_count == best->m_sched_count &&
+          p->m_wait_ticks > best->m_wait_ticks)){
         release(&best->lock);
         best = p;
       } else {
@@ -918,11 +944,20 @@ pick_proc_by_action(int action)
       }
       break;
 
-    case ACT_PICK_RR:
-    default:
-      // 第一版先退化处理：保留最先找到的 best
+  case ACT_PICK_MIN_RTIME:
+    if(p->m_run_ticks < best->m_run_ticks ||
+      (p->m_run_ticks == best->m_run_ticks &&
+        p->m_wait_ticks > best->m_wait_ticks)){
+      release(&best->lock);
+      best = p;
+    } else {
       release(&p->lock);
-      break;
+    }
+    break;
+
+    default:
+      release(&p->lock);
+      panic("pick_proc_by_action: unreachable");
     }
   }
 

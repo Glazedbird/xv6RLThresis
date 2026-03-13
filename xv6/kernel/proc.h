@@ -4,7 +4,7 @@
 enum action{
     ACT_PICK_MAX_WAIT = 0,     // 选等待时间最长的 RUNNABLE
     ACT_PICK_MIN_SCHED = 1,    // 选被调度次数最少的
-    ACT_PICK_MAX_RTIME = 2,    // 选运行时间最短/最长的某类
+    ACT_PICK_MIN_RTIME = 2,    // 选运行时间最短的某类
     ACT_PICK_RR = 3            // 按 RR 规则选下一个
 };
 
