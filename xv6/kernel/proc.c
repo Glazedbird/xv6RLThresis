@@ -6,12 +6,6 @@
 #include "proc.h"
 #include "defs.h"
 
-//RL change
-int alpha = 100;   // 0.1
-int gamma = 900;   // 0.9
-int qtable[NSTATE];
-struct spinlock qtable_lock;
-
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -57,7 +51,6 @@ procinit(void)
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
-  initlock(&qtable_lock, "qtable_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->state = UNUSED;
@@ -517,50 +510,27 @@ kwaitstat(uint64 addr_status, uint64 addr_stat)
 void
 scheduler(void)
 {
-  struct proc *p;
   struct proc *best;
   struct cpu *c = mycpu();
-  int best_state = -1;
-  int best_score = 0;
-
   c->proc = 0;
+
   for(;;){
     intr_on();
-    //如果在wfi前，中断到达，则会死锁，所以需要关闭这个interrupt。
     intr_off();
 
-    best = 0;
-    best_state = -1;
-    best_score = 0;
-    for(p = proc; p < &proc[NPROC]; p++){
-      acquire(&p->lock);
+    int state = build_global_state();
+    int action = choose_action(state);
 
-      if(p->state != RUNNABLE){
-        release(&p->lock);
-        continue;
-      }
-
-      int state = encode_state(p);
-      int score = qtable[state];
-      p->rl_state = state;
-
-      if(best == 0 || score > best_score){
-        if(best != 0)
-          release(&best->lock);
-
-        best = p;
-        best_state = state;
-        best_score = score;
-      } else {
-        release(&p->lock);
-      }
-    }
+    best = pick_proc_by_action(action);
 
     if(best){
-      if(best->first_run_time == 0){
+
+      if(!holding(&best->lock))
+        panic("best lock lost");
+
+      if(best->first_run_time == 0)
         best->first_run_time = ticks;
-      }
-      best->rl_state = best_state;
+
       best->m_sched_count++;
       best->m_last_scheduled_tick = ticks;
 
@@ -569,15 +539,15 @@ scheduler(void)
 
       swtch(&c->context, &best->context);
 
-      int terminal = 0;
-      //更新Qtable的逻辑
-      if(best->state == ZOMBIE){
-        terminal = 1;
-      }
-      int reward = compute_reward(best, best->rl_state);
-      update_qtable(best->rl_state, encode_state(best), reward, terminal);
+      int terminal = (best->state == ZOMBIE);
       c->proc = 0;
       release(&best->lock);
+      
+      int next_state = build_global_state();
+      int reward = compute_reward(state, next_state, terminal);
+      rl_update(state, action, next_state, reward, terminal);
+
+
     } else {
       asm volatile("wfi");
     }
@@ -797,8 +767,6 @@ procdump(void)
 
   struct proc *p;
   char *state;
-  int w, s;
-  int idx;
   uint64 resp;
   uint64 turn;
 
@@ -859,17 +827,7 @@ procdump(void)
     printf("\n");
   }
 
-  printf("===== qtable dump =====\n");
-  acquire(&qtable_lock);
-  for(w = 0; w < 3; w++){
-    for(s = 0; s < 3; s++){
-      idx = w * 3 + s;
-      printf("state(w=%d,s=%d)[%d] = %d\n", w, s, idx, qtable[idx]);
-    }
-  }
-  release(&qtable_lock);
-
-  printf("=======================\n");
+  qtabledump();
 }
 // RLchange
 void
@@ -898,84 +856,75 @@ update_sched_stats(void)
   }
 }
 
-// RLchange
-int encode_state(struct proc *p)
-{
-    int w;
-    int r;
-
-    // waiting bucket
-    if(p->m_wait_ticks < 5)
-        w = 0;
-    else if(p->m_wait_ticks < 20)
-        w = 1;
-    else
-        w = 2;
-
-    // run count bucket
-    if(p->m_sched_count < 2)
-        r = 0;
-    else if(p->m_sched_count < 5)
-        r = 1;
-    else
-        r = 2;
-
-    // system load bucket
-    // if(runnable < 3)
-    //     l = 0;
-    // else if(runnable < 6)
-    //     l = 1;
-    // else
-    //     l = 2;
-
-    return w*3 + r;
-}
-
 // RL change
-void
-update_qtable(int old_state, int next_state, int reward, int terminal)
+int
+build_global_state(void)
 {
-    int next_value = 0;
-    int reward_scaled = reward * SCALE;
-    int td_target;
-    int td_error;
-    int delta;
+  struct proc *p;
+  int runnable_cnt = 0;
+  uint64 max_wait = 0;
 
-    acquire(&qtable_lock);
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state == RUNNABLE){
+      runnable_cnt++;
+      if(p->m_wait_ticks > max_wait)
+        max_wait = p->m_wait_ticks;
+    }
+    release(&p->lock);
+  }
 
-    if(!terminal)
-        next_value = qtable[next_state];
+  int rb = state_runnable_bucket(runnable_cnt);
+  int wb = state_maxwait_bucket(max_wait);
 
-    // td_target = reward + gamma * next_value
-    td_target = reward_scaled + (gamma * next_value) / SCALE;
-
-    // td_error = td_target - current_value
-    td_error = td_target - qtable[old_state];
-
-    // delta = alpha * td_error
-    delta = (alpha * td_error) / SCALE;
-
-    qtable[old_state] += delta;
-
-    release(&qtable_lock);
+  return rb * NWAIT_BUCKET + wb;
 }
 
-int
-state_wait_bucket(int state)
+struct proc*
+pick_proc_by_action(int action)
 {
-    return state / 3;
-}
+  struct proc *p;
+  struct proc *best = 0;
 
-int
-compute_reward(struct proc *p, int old_state)
-{
-    int reward = 1;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
 
-    if(p->state == ZOMBIE)
-        reward += 10;
+    if(p->state != RUNNABLE){
+      release(&p->lock);
+      continue;
+    }
 
-    if(state_wait_bucket(old_state) == 2)
-        reward += 2;
+    if(best == 0){
+      best = p;
+      continue;
+    }
 
-    return reward;
+    switch(action){
+    case ACT_PICK_MAX_WAIT:
+      if(p->m_wait_ticks > best->m_wait_ticks){
+        release(&best->lock);
+        best = p;
+      } else {
+        release(&p->lock);
+      }
+      break;
+
+    case ACT_PICK_MIN_SCHED:
+      if(p->m_sched_count < best->m_sched_count){
+        release(&best->lock);
+        best = p;
+      } else {
+        release(&p->lock);
+      }
+      break;
+
+    case ACT_PICK_RR:
+    default:
+      // 第一版先退化处理：保留最先找到的 best
+      release(&p->lock);
+      break;
+    }
+  }
+
+  return best;   // 返回时 best->lock 仍持有
 }

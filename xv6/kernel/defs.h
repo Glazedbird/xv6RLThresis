@@ -103,10 +103,6 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 void            update_sched_stats(void);
-void            update_qtable(int state, int next_state, int reward, int terminal);
-int             encode_state(struct proc *p);
-int             compute_reward(struct proc *p, int old_state);
-int             state_wait_bucket(int state);
 int             kwaitstat(uint64 addr_status, uint64 addr_stat);
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -186,6 +182,21 @@ void            plic_complete(int);
 void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
+
+// rand.c
+void randinit(uint seed);
+void srand(uint seed);
+uint rand32(void);
+int rand_range(int n);
+
+// rl.c
+void qtabledump(void);
+int compute_reward(int old_state, int next_state, int terminal);
+void rl_update(int s, int a, int s2, int reward, int terminal);
+int choose_action(int state);
+int state_maxwait_bucket(uint64 max_wait);
+int state_runnable_bucket(int cnt);
+void qtableinit();
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
