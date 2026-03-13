@@ -1,0 +1,130 @@
+\section{Q-learning 调度算法设计}
+
+在上一章中，本文将操作系统任务调度问题抽象为一个马尔可夫决策过程（Markov Decision Process, MDP）。在此基础上，本章进一步设计基于强化学习的调度算法。本文选择 Q-learning 作为核心学习算法，并结合操作系统调度场景，对状态空间、动作空间以及奖励函数进行具体设计，从而构建适用于 xv6 操作系统的强化学习调度模型。
+
+\subsection{Q-learning 算法原理}
+
+Q-learning 是一种经典的无模型强化学习算法，其目标是通过不断与环境交互学习状态—动作价值函数（Q-value），从而获得最优策略。
+
+在强化学习框架中，智能体（Agent）在状态 $s$ 下选择动作 $a$，环境返回奖励 $r$，并转移到新状态 $s'$。Q-learning 通过不断更新 Q 值函数来逼近最优策略。
+
+Q-learning 的核心更新公式如下：
+
+\begin{equation}
+Q(s,a) \leftarrow Q(s,a) + \alpha \left(r + \gamma \max_{a'} Q(s',a') - Q(s,a)\right)
+\end{equation}
+
+其中：
+
+\begin{itemize}
+\item $Q(s,a)$ 表示在状态 $s$ 下执行动作 $a$ 的价值估计
+\item $\alpha$ 为学习率（learning rate），用于控制更新幅度
+\item $\gamma$ 为折扣因子（discount factor），用于衡量未来奖励的重要程度
+\item $r$ 为当前动作获得的即时奖励
+\item $\max Q(s',a')$ 表示下一状态下可能获得的最大 Q 值
+\end{itemize}
+
+通过不断迭代更新 Q 表，算法能够逐渐学习到在不同状态下最优的动作选择。
+
+为了在探索（exploration）与利用（exploitation）之间取得平衡，本文采用 $\varepsilon$-greedy 策略进行动作选择：
+
+\begin{itemize}
+\item 以概率 $\varepsilon$ 随机选择动作（探索）
+\item 以概率 $1-\varepsilon$ 选择当前 Q 值最大的动作（利用）
+\end{itemize}
+
+该策略能够避免算法过早陷入局部最优，同时保证学习过程的稳定性。
+
+在操作系统调度问题中，调度器可以视为强化学习中的智能体，而系统运行环境则构成强化学习环境。通过不断进行调度决策并更新 Q 表，调度器能够逐步学习到更加合理的任务调度策略。
+
+\subsection{状态空间设计}
+
+在强化学习调度模型中，状态空间用于描述当前系统的运行情况。合理的状态设计能够反映系统负载和进程运行特征，从而帮助算法做出更加有效的调度决策。
+
+结合 xv6 操作系统的实现，本文选择以下指标作为状态特征：
+
+\begin{itemize}
+\item 进程等待时间（wait time）
+\item 进程运行时间（run time）
+\item 调度次数（schedule count）
+\item 就绪队列长度（runnable processes）
+\end{itemize}
+
+上述信息均可以通过扩展 xv6 的 \texttt{struct proc} 结构体获得。
+
+由于 Q-learning 算法通常适用于离散状态空间，因此需要对连续变量进行离散化处理。例如，可以将等待时间划分为若干区间：
+
+\begin{itemize}
+\item $0 \sim 10$ ticks
+\item $10 \sim 50$ ticks
+\item $>50$ ticks
+\end{itemize}
+
+类似地，可以对运行时间和调度次数进行分段，从而构建有限大小的状态空间。通过这种方式，可以将系统状态表示为：
+
+\begin{equation}
+s = (wait\_level, run\_level, queue\_length)
+\end{equation}
+
+该状态能够较好地反映进程在系统中的运行情况，为调度决策提供依据。
+
+\subsection{动作空间设计}
+
+动作空间表示在给定状态下调度器可以执行的操作。在操作系统调度问题中，调度器的主要任务是从就绪队列中选择一个进程运行。
+
+因此本文将动作空间定义为：
+
+\begin{equation}
+A = \{选择某个 RUNNABLE 进程\}
+\end{equation}
+
+假设当前系统中存在 $N$ 个可运行进程，则动作空间大小为：
+
+\begin{equation}
+|A| = N
+\end{equation}
+
+在实际实现中，调度器会遍历 \texttt{proc[]} 表，找出所有状态为 RUNNABLE 的进程，并根据 Q 值选择其中最优的进程运行。
+
+在 $\varepsilon$-greedy 策略下，调度器在每次调度时：
+
+\begin{itemize}
+\item 以概率 $\varepsilon$ 随机选择一个 RUNNABLE 进程
+\item 以概率 $1-\varepsilon$ 选择 Q 值最大的进程运行
+\end{itemize}
+
+这种策略既保证了对未知状态的探索，又能够利用已有经验优化调度效果。
+
+\subsection{奖励函数设计}
+
+奖励函数用于评价调度决策对系统性能的影响，是强化学习模型设计中的关键部分。合理的奖励设计能够引导算法学习到更优的调度策略。
+
+在操作系统调度问题中，通常关注以下性能指标：
+
+\begin{itemize}
+\item 进程等待时间（Waiting Time）
+\item 响应时间（Response Time）
+\item 系统吞吐量（Throughput）
+\end{itemize}
+
+为了减少进程等待时间并提高系统整体调度效率，本文设计奖励函数主要考虑等待时间因素。例如，可以定义奖励函数为：
+
+\begin{equation}
+r = - waiting\_time
+\end{equation}
+
+即等待时间越长，获得的奖励越低，从而鼓励调度器优先执行等待时间较长的进程。
+
+此外，还可以结合系统整体性能指标进行综合设计，例如：
+
+\begin{equation}
+r = -\alpha \times waiting\_time + \beta \times throughput
+\end{equation}
+
+其中 $\alpha$ 和 $\beta$ 为权重参数。
+
+在本文的实验中，主要采用等待时间作为奖励指标，以简化实现复杂度，同时保证调度策略能够有效降低进程等待时间。
+
+\subsection{本章小结}
+
+本章介绍了基于 Q-learning 的任务调度算法设计方法。首先介绍了 Q-learning 算法的基本原理及其更新公式，并采用 $\varepsilon$-greedy 策略实现探索与利用之间的平衡。随后结合操作系统调度场景，对状态空间、动作空间以及奖励函数进行了具体设计。在此基础上构建了适用于 xv6 操作系统的强化学习调度模型，为下一章的系统实现提供理论基础。
