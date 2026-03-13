@@ -1,6 +1,6 @@
 import pandas as pd
 import yaml
-
+import os
 rows = []
 
 with open("config.yaml") as f:
@@ -31,4 +31,9 @@ with open("./rawdata/log.txt") as f:
             })
 
 df = pd.DataFrame(rows)
-df.to_csv(output_path, mode='a', header=False, index=False)
+df.to_csv(
+    output_path,
+    mode='a',
+    header=not os.path.exists(output_path),
+    index=False
+)
