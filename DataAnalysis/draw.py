@@ -1,19 +1,33 @@
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+import yaml
+import argparse
+
+## 常量加载
+with open("config.yaml") as f:
+    config = yaml.safe_load(f)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-mode", type=int, default=0)
+
+args = parser.parse_args()
+
+## 本文件中常量
+output_path = "./results/" + config["model"] + "_describe.csv"
+input_path = "./data/data" + config["model"] + ".csv"
 
 os.makedirs("figures", exist_ok=True)
 os.makedirs("results", exist_ok=True)
 
-df = pd.read_csv("data/data.csv")
-df1 = df[df["mode"] == 2].copy()
+df = pd.read_csv(input_path)
+df1 = df[df["mode"] == args.mode].copy()
 
 print("基本统计：")
 stats = df1.describe()
 print(stats)
-
 # 保存统计结果
-stats.to_csv("results/mode1_describe.csv", encoding="utf-8-sig")
+stats.to_csv(output_path, encoding="utf-8-sig")
 
 x = range(len(df1))
 
@@ -65,5 +79,5 @@ plt.tight_layout()
 plt.savefig("figures/total_wait_vs_total_sched.png", dpi=300, bbox_inches="tight")
 plt.close()
 
-print("\n统计结果已保存到 results/mode1_describe.csv")
+print("\n统计结果已保存到" + output_path + ".csv")
 print("图像已保存到 figures/ 目录下。")
