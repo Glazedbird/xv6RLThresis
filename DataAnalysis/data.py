@@ -1,10 +1,14 @@
 import pandas as pd
-
+import yaml
+import os
 rows = []
 
-input_prefix = "./rawdata/"
-output_prefix = "./data/"
-with open(input_prefix + "log.txt") as f:
+with open("config.yaml") as f:
+    config = yaml.safe_load(f)
+
+output_path = "./data/data" + config["model"] + ".csv"
+
+with open("./rawdata/log.txt") as f:
     for line in f:
         if line.startswith("SUMMARY"):
             p = line.strip().split(",")
@@ -27,4 +31,9 @@ with open(input_prefix + "log.txt") as f:
             })
 
 df = pd.DataFrame(rows)
-df.to_csv(output_prefix + "data.csv", index=False)
+df.to_csv(
+    output_path,
+    mode='a',
+    header=not os.path.exists(output_path),
+    index=False
+)
