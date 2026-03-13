@@ -19,6 +19,7 @@ input_path = "./data/data" + config["model"] + ".csv"
 
 os.makedirs("figures", exist_ok=True)
 os.makedirs("results", exist_ok=True)
+os.makedirs("figures/" + config["model"], exist_ok=True)
 
 df = pd.read_csv(input_path)
 df1 = df[df["mode"] == args.mode].copy()
