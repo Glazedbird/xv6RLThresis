@@ -19,16 +19,7 @@ spawn(char *prog)
     }
 }
 
-int
-main(int argc, char *argv[])
-{
-    if(argc < 2){
-        printf("usage: workload <mode>\n");
-        exit(1);
-    }
-
-    int mode = atoi(argv[1]);
-
+void exec_once(int mode) {
     int n = 0;
     uint64 total_turnaround = 0;
     uint64 total_response = 0;
@@ -85,46 +76,78 @@ main(int argc, char *argv[])
         total_sched += st.sched_count;
         n++;
 
-        printf("STAT mode=%d pid=%d status=%d "
-               "ctime=%ld first=%ld etime=%ld "
-               "run=%ld wait=%ld sleep=%ld sched=%ld "
-               "turnaround=%ld response=%ld\n",
-               mode,
-               pid,
-               status,
-               st.ctime,
-               st.first_run_time,
-               st.etime,
-               st.run_ticks,
-               st.wait_ticks,
-               st.sleep_ticks,
-               st.sched_count,
-               turnaround,
-               response);
+        // printf("STAT mode=%d pid=%d status=%d "
+        //        "ctime=%ld first=%ld etime=%ld "
+        //        "run=%ld wait=%ld sleep=%ld sched=%ld "
+        //        "turnaround=%ld response=%ld\n",
+        //        mode,
+        //        pid,
+        //        status,
+        //        st.ctime,
+        //        st.first_run_time,
+        //        st.etime,
+        //        st.run_ticks,
+        //        st.wait_ticks,
+        //        st.sleep_ticks,
+        //        st.sched_count,
+        //        turnaround,
+        //        response);
+
     }
 
     if(n > 0){
-        printf("SUMMARY mode=%d n=%d "
-               "avg_turnaround=%ld avg_response=%ld avg_wait=%ld "
-               "avg_run=%ld avg_sleep=%ld avg_sched=%ld "
-               "total_turnaround=%ld total_response=%ld total_wait=%ld "
-               "total_run=%ld total_sleep=%ld total_sched=%ld\n",
-               mode,
-               n,
-               total_turnaround / n,
-               total_response / n,
-               total_wait / n,
-               total_run / n,
-               total_sleep / n,
-               total_sched / n,
-               total_turnaround,
-               total_response,
-               total_wait,
-               total_run,
-               total_sleep,
-               total_sched);
+        // printf("SUMMARY mode=%d n=%d "
+        //        "avg_turnaround=%ld avg_response=%ld avg_wait=%ld "
+        //        "avg_run=%ld avg_sleep=%ld avg_sched=%ld "
+        //        "total_turnaround=%ld total_response=%ld total_wait=%ld "
+        //        "total_run=%ld total_sleep=%ld total_sched=%ld\n",
+        //        mode,
+        //        n,
+        //        total_turnaround / n,
+        //        total_response / n,
+        //        total_wait / n,
+        //        total_run / n,
+        //        total_sleep / n,
+        //        total_sched / n,
+        //        total_turnaround,
+        //        total_response,
+        //        total_wait,
+        //        total_run,
+        //        total_sleep,
+        //        total_sched);
+        printf("SUMMARY,%d,%d,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld\n",
+                mode,
+                n,
+                total_turnaround / n,
+                total_response / n,
+                total_wait / n,
+                total_run / n,
+                total_sleep / n,
+                total_sched / n,
+                total_turnaround,
+                total_response,
+                total_wait,
+                total_run,
+                total_sleep,
+                total_sched);
     } else {
         printf("SUMMARY mode=%d n=0\n", mode);
+    }
+}
+
+int
+main(int argc, char *argv[])
+{
+    if(argc < 2){
+        printf("usage: workload <mode>\n");
+        exit(1);
+    }
+
+    int mode = atoi(argv[1]);
+    int times = atoi(argv[2]);
+
+    while(times --) {
+        exec_once(mode);
     }
 
     printf("WORKLOAD END mode=%d\n", mode);
