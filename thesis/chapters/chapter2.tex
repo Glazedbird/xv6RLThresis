@@ -58,7 +58,7 @@ xv6中进程的调度主要通过 \texttt{scheduler} 进行完成，\texttt{sche
 
 \subsubsection{时钟中断与调度触发}
 xv6 的进程之间的切换主要有两种，一种是进程调用 \texttt{sleep} 进如 \texttt{SLEEPING} 或 \texttt{ZOMBIE} 状态，并让出当前的执行机会。另一种依赖于硬件（CPU）所提供的定时器定期产生中断。硬件定时器产生中断时，CPU 会进入内核态并执行中断处理程序。在处理中断的过程中，如果当前进程正在运行，系统会调用 \texttt{yield()} 函数使进程主动让出 CPU，从而触发一次调度。通过这种机制，系统能够实现基于时间片的进程调度，保证多个进程能够共享 CPU 资源。
-\todo[inline]{解释图}
+
 
 \subsection{默认算法分析}
 \subsubsection{Round Robin原理}
