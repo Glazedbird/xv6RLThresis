@@ -1,183 +1,227 @@
-\section{基于Q-learning的调度算法设计}
+\section{基于 Q-learning 的调度算法设计}
 
-在第2章中，本文已将操作系统调度问题建模为马尔可夫决策过程（MDP）。
-在此基础上，本章引入Q-learning算法，对该序贯决策问题进行求解，并给出调度策略的学习方法。
+在第二章中，本文已经将操作系统调度问题抽象为一个有限状态的序列决策问题。在此基础上，本章进一步引入 Q-learning 算法，对该问题进行具体求解，并结合当前工程实现给出状态表示、动作设计、奖励机制和学习流程。
 
-\subsection{Q-learning算法原理}
-Q-learning是一种典型的无模型强化学习方法，其核心思想是通过与环境不断交互，
-学习状态-动作价值函数 $Q(s,a)$，从而获得最优决策策略。
+\subsection{Q-learning 算法原理}
 
-状态-动作价值函数（Q-function）用于刻画在给定状态下采取某一动作所能获得的长期回报，其定义如下：
+Q-learning 是一种典型的无模型强化学习方法，其核心思想是通过与环境的持续交互，学习状态-动作价值函数 $Q(s,a)$，从而获得能够最大化长期回报的决策策略。
 
-\[
-Q_\pi(s,a) = \mathbb{E}_\pi \left[ G_t \mid s_t = s, a_t = a \right]
-\]
+对于任意状态 $s$ 和动作 $a$，$Q(s,a)$ 表示在状态 $s$ 下执行动作 $a$ 后，未来能够获得的期望累积回报。形式化地，可写为：
 
-其中，$G_t$ 表示从时刻 $t$ 开始的累计回报（return），定义为：
+\begin{equation}
+Q_{\pi}(s,a)=\mathbb{E}_{\pi}\left[G_t \mid s_t=s, a_t=a\right]
+\end{equation}
 
-\[
-G_t = r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \cdots
-\]
+其中，$G_t$ 表示从时刻 $t$ 开始的累积回报，即
 
-该定义表示：在状态$s$下执行动作$a$，并在之后按照策略$\pi$继续决策，
-所能获得的累计回报的期望值。
+\begin{equation}
+G_t=r_t+\gamma r_{t+1}+\gamma^2 r_{t+2}+\cdots
+\end{equation}
 
-因此，$Q(s,a)$可以理解为对某一状态-动作对“优劣程度”的评价，
-其数值越大，说明在该状态下选择该动作所带来的长期收益越高。
+式中，$\gamma$ 为折扣因子，用于平衡即时收益与未来收益的重要性。
 
-在本文的调度问题中，状态$s$表示系统当前运行状态，
-动作$a$表示所选择的调度策略。
-因此，$Q(s,a)$反映了在当前系统状态下采用某种调度策略，
-对系统整体性能（如等待时间、响应时间等）的长期影响。
+Q-learning 通过不断更新 $Q(s,a)$ 的估计值，逐步逼近最优状态-动作价值函数。其基本更新公式为：
 
-Q-learning通过不断更新$Q(s,a)$的估计值，使得调度器能够逐步学习到
-在不同状态下应选择的最优调度策略。
+\begin{equation}
+Q(s,a)\leftarrow Q(s,a)+\alpha\left(r+\gamma \max_{a'}Q(s',a')-Q(s,a)\right)
+\end{equation}
 
-Q-learning的更新公式如下：
-\[
-Q(s,a) \leftarrow Q(s,a) + \alpha \left( r + \gamma \max_{a'} Q(s',a') - Q(s,a) \right)
-\]
+其中：
 
-该更新过程可以理解为：将当前的Q值估计向“目标值”进行调整，
-其中目标值由即时奖励$r$与下一状态的最优Q值共同决定。
-
-具体而言：
 \begin{itemize}
-    \item $r$ 表示当前调度决策带来的即时反馈；
-    \item $\max_{a'} Q(s',a')$ 表示在下一状态$s'$下能够获得的最大长期收益；
-    \item $\gamma$ 用于控制未来收益的重要程度；
-    \item $\alpha$ 控制更新幅度，即新旧信息的权衡。
+\item $\alpha$ 为学习率，用于控制新信息对旧估计的修正幅度；
+\item $r$ 为执行动作后获得的即时奖励；
+\item $s'$ 为执行动作后的下一状态；
+\item $\max_{a'}Q(s',a')$ 表示下一状态下可能获得的最大未来收益。
 \end{itemize}
 
-通过不断与系统交互并执行上述更新，Q-learning能够在不依赖状态转移概率的情况下，
-逐步逼近最优的状态-动作价值函数，从而获得最优调度策略。
+在本文的调度问题中，状态 $s$ 表示当前系统调度状态，动作 $a$ 表示调度器选择的一种调度规则，因此 $Q(s,a)$ 反映的是“在当前系统状态下采用某一调度规则所带来的长期收益”。通过持续更新 Q 值，调度器可以逐步学习在不同负载条件下更合适的调度行为。
 
-在第2章中，本文已对调度问题的状态空间与动作空间进行了抽象定义。
-在本章中，不再重复其数学定义，而是关注其在Q-learning算法中的表示方式。
+\subsection{状态表示设计}
 
-具体而言，状态$s$由系统运行状态映射得到，
-动作$a$对应不同调度策略的选择，
-二者均采用离散形式表示，以便于构建Q表并进行学习。
+为了使 Q-learning 能够在轻量级内核环境中稳定运行，本文采用离散状态空间，而非连续高维状态表示。结合当前工程实现，系统状态由以下两个全局统计量构成：
 
-该表示方式实现了从复杂系统状态到有限离散空间的映射，
-使得基于表格的强化学习方法能够在操作系统内核环境中有效应用。
-
-\subsection{Q表设计}
-
-Q-learning的核心在于学习状态-动作价值函数 $Q(s,a)$。
-在理论上，$Q(s,a)$可以通过任意函数逼近方法进行表示，
-例如表格方法（tabular method）或函数逼近方法（如神经网络）。
-
-在本文中，由于状态空间与动作空间均经过离散化处理，
-状态和动作的取值范围是有限的，
-因此可以采用表格形式对$Q(s,a)$进行显式存储，
-构建二维Q表：
-\[
-Q: S \times A \rightarrow \mathbb{R}
-\]
-
-其中，Q表的每一项 $Q(s,a)$ 表示在状态$s$下执行动作$a$
-所对应的价值估计。
-
-采用Q表具有如下优点：
 \begin{itemize}
-    \item \textbf{实现简单}：无需复杂的函数逼近模型；
-    \item \textbf{计算开销低}：仅涉及数组查表与更新，适合操作系统内核环境；
-    \item \textbf{稳定性强}：更新过程直接作用于Q值本身，不存在函数逼近带来的不稳定问题。
+\item 当前处于 \texttt{RUNNABLE} 状态的进程数；
+\item 所有 \texttt{RUNNABLE} 进程中的最大等待时间。
 \end{itemize}
 
-另一方面，也可以采用神经网络对$Q(s,a)$进行近似，
-即深度Q网络（Deep Q-Network, DQN）方法。
-然而，该方法通常需要较高的计算资源与存储开销，
-并依赖批量训练与经验回放机制，
-不适合直接嵌入轻量级操作系统内核中运行。
+\subsubsection{可运行进程数离散化}
 
-因此，本文选择基于表格的Q-learning方法，
-在保证实现可行性的同时，实现调度策略的在线学习与优化。
+对于可运行进程数，本文将其划分为 3 个区间：
+
+\begin{itemize}
+\item 当可运行进程数不超过 1 时，映射为第 0 类；
+\item 当可运行进程数处于 2 到 4 之间时，映射为第 1 类；
+\item 当可运行进程数大于 4 时，映射为第 2 类。
+\end{itemize}
+
+这一划分与代码中的 \texttt{state\_runnable\_bucket()} 实现一致，能够粗略反映系统当前负载水平。
+
+\subsubsection{最大等待时间离散化}
+
+对于最大等待时间，本文同样划分为 3 个区间：
+
+\begin{itemize}
+\item 当最大等待时间小于 5 个时钟滴答时，映射为第 0 类；
+\item 当最大等待时间在 5 到 19 个时钟滴答之间时，映射为第 1 类；
+\item 当最大等待时间不小于 20 个时钟滴答时，映射为第 2 类。
+\end{itemize}
+
+这一划分与代码中的 \texttt{state\_maxwait\_bucket()} 保持一致，主要用于度量系统中等待压力的高低。
+
+\subsubsection{状态编码方式}
+
+设可运行进程数桶编号为 $rb$，最大等待时间桶编号为 $wb$，则系统状态编码为：
+
+\begin{equation}
+s = rb \times NWAIT\_BUCKET + wb
+\end{equation}
+
+由于两类桶的取值范围均为 3，因此总状态空间大小为：
+
+\begin{equation}
+NSTATE = NRUN\_BUCKET \times NWAIT\_BUCKET = 3 \times 3 = 9
+\end{equation}
+
+这种编码方式直接对应 \texttt{build\_global\_state()} 的实现。通过将复杂系统状态压缩为 9 个离散状态，本文既保留了负载水平和等待压力两类关键信息，又控制了 Q 表规模，使其适合在内核中直接维护。
+
+\subsection{动作空间设计}
+
+在传统调度问题中，动作可被定义为“直接选择一个具体进程执行”。然而，这会导致动作空间大小随可运行进程数量变化，不利于表格型 Q-learning 的实现。为此，本文采用策略级动作设计，即将动作定义为“选择一种调度规则”，再由该规则确定具体运行的进程。
+
+结合当前工程实现，动作空间定义为：
+
+\begin{equation}
+A=\{a_0,a_1,a_2,a_3\}
+\end{equation}
+
+其中四个动作分别对应如下规则：
+
+\begin{itemize}
+\item $a_0$：选择等待时间最长的 \texttt{RUNNABLE} 进程；
+\item $a_1$：选择被调度次数最少的 \texttt{RUNNABLE} 进程；
+\item $a_2$：选择累计运行时间最短的 \texttt{RUNNABLE} 进程；
+\item $a_3$：按轮转调度规则选择下一个 \texttt{RUNNABLE} 进程。
+\end{itemize}
+
+在代码中，这四个动作分别对应 \texttt{ACT\_PICK\_MAX\_WAIT}、\texttt{ACT\_PICK\_MIN\_SCHED}、\texttt{ACT\_PICK\_MIN\_RTIME} 和 \texttt{ACT\_PICK\_RR}。当前工程通过 \texttt{pick\_proc\_by\_action()} 完成动作到具体进程选择的映射。
+
+这种建模方式将原本复杂的“进程选择问题”转化为规模固定的“规则选择问题”，显著降低了动作空间复杂度，也使调度器能够在公平性优先、等待优先和短作业倾向等多种行为之间动态切换。
+
+\subsection{Q 表设计}
+
+由于本文采用的是离散状态与离散动作，Q-learning 的价值函数可以直接由二维表结构表示。结合当前工程实现，Q 表定义为：
+
+\begin{verbatim}
+int qtable[NSTATE][NACTION];
+\end{verbatim}
+
+其中，\texttt{NSTATE=9}，\texttt{NACTION=4}，因此 Q 表规模较小，适合在 xv6 内核中直接静态维护。
+
+为保证多核环境下的并发安全，Q 表访问由自旋锁 \texttt{qtable\_lock} 保护。调度器在进行动作选择和 Q 值更新时，都需要在访问 Q 表前后进行加锁与释放。
+
+\subsubsection{定点数实现}
+
+由于 xv6 内核环境中不适合直接使用浮点运算，本文采用定点数方式表示学习参数。具体设置如下：
+
+\begin{itemize}
+\item \texttt{ALPHA=100}，对应学习率 $\alpha=0.1$；
+\item \texttt{GAMMA=900}，对应折扣因子 $\gamma=0.9$；
+\item \texttt{SCALE=1000}，用于统一缩放 Q 值与中间计算结果。
+\end{itemize}
+
+在实际更新过程中，奖励和未来收益会先乘以 \texttt{SCALE} 进入统一量纲，再按整数方式完成更新。这种设计避免了浮点支持需求，同时保留了足够的数值表达能力。
 
 \subsection{动作选择策略}
 
-在强化学习过程中，动作选择需要在探索（exploration）与利用（exploitation）之间进行权衡。
+强化学习中的关键问题之一是如何在“探索”（exploration）与“利用”（exploitation）之间取得平衡。如果调度器始终选择当前 Q 值最大的动作，则可能过早收敛到局部最优；如果过度随机探索，又会影响系统运行性能。
 
-其中，利用是指根据当前已学习到的Q值选择最优动作，
-以获得尽可能高的即时收益；而探索则是指尝试尚未充分评估的动作，
-以获取新的经验，从而避免陷入局部最优。
-
-如果始终采用贪心策略（即总是选择当前Q值最大的动作），
-虽然短期内可能获得较高收益，但由于缺乏对其他动作的尝试，
-容易导致策略收敛到次优解；相反，如果过度探索，则会降低系统性能，
-并影响学习效率。因此，在探索与利用之间取得平衡是强化学习中的关键问题。
-
-为此，本文采用$\epsilon$-greedy策略进行动作选择。具体而言：
+为此，本文采用 $\varepsilon$-greedy 策略进行动作选择。其基本思想为：
 
 \begin{itemize}
-    \item 以概率$\epsilon$随机选择动作，以探索未知策略空间；
-    \item 以概率$1-\epsilon$选择当前Q值最大的动作，以利用已有经验。
+\item 以概率 $\varepsilon$ 随机选择一个动作，用于探索；
+\item 以概率 $1-\varepsilon$ 选择当前 Q 值最大的动作，用于利用已有经验。
 \end{itemize}
 
-在操作系统调度场景中，该策略具有重要意义：
-一方面，通过随机探索不同调度策略，系统能够发现潜在的更优调度方式；
-另一方面，通过利用当前最优策略，可以保证系统在大多数时间内维持较高性能。
+在当前工程实现中，设置：
 
-因此，$\epsilon$-greedy策略能够在保证系统运行稳定性的同时，
-逐步提升调度策略的整体性能，从而实现自适应优化。
+\begin{equation}
+\varepsilon = 0.1
+\end{equation}
 
-\subsection{学习过程}
+即有 10\% 的概率进行随机探索，有 90\% 的概率执行贪心选择。代码中通过 \texttt{rand\_range(100)} 与常量 \texttt{EPOSILON=10} 实现这一机制。
 
-在操作系统调度过程中，每一次调度决策均可视为一次强化学习交互过程。
-具体而言，当调度器被触发（如时间片结束或进程主动让出CPU）时，
-系统进入一次“状态-决策-反馈-更新”的学习循环。
+对于内核调度问题而言，这种策略具有良好的实用性。一方面，调度器能够周期性尝试不同规则，避免过早固化为单一调度模式；另一方面，在大多数时间仍会采用当前认为更优的动作，从而控制探索带来的性能波动。
 
-在本文中，该学习过程与调度过程紧密耦合，其具体步骤如下：
+\subsection{奖励函数设计}
+
+奖励函数用于衡量一次调度行为对系统性能的影响。结合当前工程实现，本文采用较为简洁的奖励设计，重点关注调度行为是否能够降低系统等待压力。
+
+设调度前状态为 $s$，调度后状态为 $s'$，其等待时间桶编号分别为 $wb$ 和 $wb'$，则奖励函数可表示为：
+
+\begin{equation}
+r =
+\begin{cases}
+5, & \text{若本次调度后进程进入终止状态} \\
+2, & \text{若 } wb' < wb \\
+-2, & \text{若 } wb' > wb \\
+0, & \text{其他情况}
+\end{cases}
+\end{equation}
+
+上述设计与 \texttt{compute\_reward()} 的实现一致，体现了以下三点思想：
+
+\begin{itemize}
+\item 鼓励系统降低全局最大等待时间；
+\item 惩罚导致等待压力上升的调度行为；
+\item 对推动进程结束的调度结果给予附加正奖励。
+\end{itemize}
+
+该奖励函数虽然相对简化，但与当前状态表示高度匹配，能够为调度器提供明确、可计算的优化目标。
+
+\subsection{学习过程设计}
+
+在本文实现中，每一次调度决策都对应强化学习中的一次交互过程。其基本步骤如下：
 
 \begin{enumerate}
-    \item 获取当前系统状态$s$，该状态由当前RUNNABLE进程数量、
-    等待情况等信息构成；
-
-    \item 根据$\epsilon$-greedy策略选择动作$a$，即选择一种调度策略；
-
-    \item 执行动作$a$对应的调度策略，从RUNNABLE进程集合中选取一个进程运行；
-
-    \item 系统运行一段时间后，状态发生变化，转移至新状态$s'$；
-
-    \item 根据状态变化计算即时奖励$r$，以反映本次调度决策对系统性能的影响；
-
-    \item 使用Q-learning更新公式对$Q(s,a)$进行更新，从而修正对该状态-动作对的价值估计。
+\item 调度器调用 \texttt{build\_global\_state()} 观测当前状态 $s$；
+\item 根据 $\varepsilon$-greedy 策略调用 \texttt{choose\_action(s)} 选择动作 $a$；
+\item 根据动作 $a$ 对应的规则，从 \texttt{RUNNABLE} 集合中选择一个具体进程运行；
+\item 进程执行一个时间片或直到主动让出处理器、阻塞或退出；
+\item 调度器重新观测新状态 $s'$；
+\item 调用奖励函数计算即时奖励 $r$；
+\item 使用样本 $(s,a,r,s')$ 对 Q 表进行更新。
 \end{enumerate}
 
-上述过程对应于强化学习中的一次交互样本$(s,a,r,s')$。
-随着调度过程的不断进行，系统能够持续积累经验数据，
-并通过不断更新Q值，逐步学习在不同系统状态下的最优调度策略。
+在代码实现上，这一过程嵌入在 \texttt{scheduler()} 主循环中。调度器在每次上下文切换返回后，都会根据调度前后的状态差异执行一次 Q-learning 更新。由此，系统在运行过程中即可不断积累经验，并逐步形成适应当前负载特征的调度策略。
 
-需要指出的是，该学习过程无需显式建模状态转移概率，
-而是通过与系统运行过程的实时交互进行在线学习，
-因此适用于复杂且动态变化的操作系统环境。
+\subsubsection{终止情形处理}
+
+当被调度进程在本轮执行后进入 \texttt{ZOMBIE} 状态时，可视为一次终止转移。当前实现中，若 \texttt{terminal} 为真，则不再使用下一状态的未来收益项，而是仅使用当前奖励构造更新目标。这一处理方式有助于避免在终止状态上引入无意义的未来估计。
 
 \subsection{算法流程总结}
 
-在上述学习过程的基础上，可以将基于Q-learning的调度算法形式化表示如下：
+基于上述设计，可将本文的 Q-learning 调度算法概括为如下流程：
 
 \begin{algorithm}[htbp]
 \caption{Q-learning Scheduler}
 \label{alg:ql_scheduler}
 \begin{algorithmic}[1]
-
-\State Initialize $Q(s,a)$ arbitrarily
-
+\State Initialize $Q(s,a)$
 \While{system is running}
     \State Observe current state $s$
-    \State Select action $a$ using $\epsilon$-greedy policy
-    \State Execute scheduling policy corresponding to $a$
+    \State Select action $a$ using $\varepsilon$-greedy policy
+    \State Pick a runnable process according to action $a$
+    \State Run the selected process
     \State Observe reward $r$ and next state $s'$
-    \State Update Q-value:
-    \[
-    Q(s,a) \leftarrow Q(s,a) + \alpha \left( r + \gamma \max_{a'} Q(s',a') - Q(s,a) \right)
-    \]
-    \State $s \gets s'$
+    \State Update $Q(s,a)$
 \EndWhile
-
 \end{algorithmic}
 \end{algorithm}
 
-该算法在系统运行过程中持续进行状态评估与策略更新，
-实现调度策略的在线学习与自适应优化。
+与传统静态调度策略相比，该算法能够在系统运行过程中不断修正自身决策偏好。其本质并非试图以单一规则替代已有调度器，而是利用强化学习在多种候选调度规则之间建立动态选择机制，从而提升调度策略对负载变化的适应能力。
+
+\subsection{本章小结}
+
+本章完成了基于 Q-learning 的调度算法设计。首先介绍了 Q-learning 的基本原理及其在调度问题中的适用性；随后结合当前工程实现，给出了由 9 个离散状态和 4 个策略级动作构成的状态-动作建模方式，并说明了 Q 表结构、定点数实现、$\varepsilon$-greedy 动作选择策略以及奖励函数设计；最后给出了与 \texttt{scheduler()} 主循环相对应的在线学习流程。上述内容构成了本文后续内核实现与实验分析的算法基础。

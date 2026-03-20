@@ -1,29 +1,33 @@
 \section{基于 xv6 的 QL-Scheduler 实现}
 
-在上一章中，本文设计了基于 Q-learning 的任务调度算法模型。本章在 xv6 操作系统的基础上实现该调度算法，通过修改系统调度器逻辑并扩展进程数据结构，实现强化学习调度机制。本章重点介绍调度器修改方案、数据结构设计以及内核实现细节。
+上一章已经完成基于 Q-learning 的调度器建模与算法设计。本章进一步面向 xv6 操作系统给出具体实现。xv6 内核结构简洁、调度路径清晰，适合作为强化学习调度器的原型验证平台。为保证系统实现的可控性与可分析性，本文在尽量保持 xv6 原有进程管理框架不变的前提下，对调度主循环、进程统计字段、随机探索模块以及结果观测接口进行了扩展，从而实现了一个轻量级的内核级 Q-learning 调度器。
 
 \subsection{调度器修改方案}
 
-xv6 操作系统采用简单的轮询调度策略（Round-Robin）。在默认实现中，调度器通过遍历进程表 \texttt{proc[]}，选择状态为 \texttt{RUNNABLE} 的进程运行。
+xv6 默认采用简单的轮转调度（Round-Robin）策略。其原始调度器在 \texttt{scheduler()} 中遍历进程表 \texttt{proc[]}，选择处于 \texttt{RUNNABLE} 状态的进程执行。该实现结构简洁，便于教学与验证，但缺乏依据系统负载变化和进程历史行为动态调整调度策略的能力。
 
-本文在原有调度机制的基础上引入强化学习决策层，实现基于 Q-learning 的调度策略。整体修改方案主要包括以下几个方面：
+针对这一不足，本文在原有调度框架上引入强化学习决策层，将“直接选择某个进程”转化为“先选择一种调度动作，再由该动作对应的规则选出具体进程”。该设计既保留了 xv6 调度器易于实现、易于分析的特点，又能够在有限状态空间内完成 Q-learning 的在线学习。整体修改主要包括以下几个方面：
 
 \begin{itemize}
-\item 在 \texttt{scheduler()} 函数中加入 Q-learning 决策逻辑
-\item 扩展 \texttt{struct proc} 数据结构，用于记录调度统计信息
-\item 引入 Q 表（Q-table）用于存储状态-动作价值函数
-\item 添加简单的随机数模块以支持$\varepsilon$-greedy策略
+\item 在 \texttt{scheduler()} 中加入状态构建、动作选择、奖励计算和 Q 表更新逻辑；
+\item 扩展 \texttt{struct proc}，记录进程运行时间、等待时间、首次运行时间和被调度次数等统计信息；
+\item 设计离散状态空间与有限动作空间，并使用二维数组实现 Q 表；
+\item 增加内核随机数模块，为 $\varepsilon$-greedy 探索策略提供支持；
+\item 扩展 \texttt{wait()} 相关系统调用，使用户程序能够获取子进程运行统计数据。
 \end{itemize}
 
-修改后的调度流程如下：
-\todo{修改后的调度流程图加一张。}
+修改后的调度过程可概括为：
+
 \begin{enumerate}
-\item 调度器扫描进程表，获取所有 RUNNABLE 进程
-\item 编码当前系统状态
-\item 使用 $\varepsilon$-greedy 策略选择调度策略
-\item 使用选中的调度策略选择符合条件进程
-\item 根据运行结果计算奖励并更新 Q 表
+\item 扫描当前进程表，提取系统调度状态；
+\item 将状态离散编码为 Q-learning 状态编号；
+\item 采用 $\varepsilon$-greedy 策略选择当前动作；
+\item 按所选动作对应的规则，从 \texttt{RUNNABLE} 进程中选出目标进程；
+\item 运行该进程一个时间片或直到其主动让出处理器；
+\item 基于调度前后状态变化计算奖励，并更新 Q 表。
 \end{enumerate}
+
+核心调度逻辑如下：
 
 \begin{verbatim}
 int state = build_global_state();
@@ -31,119 +35,206 @@ int action = choose_action(state);
 best = pick_proc_by_action(action);
 \end{verbatim}
 
-
-通过这种方式，可以在不改变 xv6 核心结构的前提下，实现强化学习调度机制。
+通过上述改造，强化学习模块得以以较低侵入性的方式嵌入 xv6 内核，同时保持调度路径清晰，从而便于后续实验分析与结果解释。
 
 \subsection{数据结构设计}
 
-为了支持强化学习调度算法，需要对 xv6 内核数据结构进行一定扩展。
+\subsubsection{进程统计信息扩展}
 
-\subsubsection{进程统计信息}
+为了支撑调度状态建模和实验指标采集，本文在 \texttt{struct proc} 中增加了若干统计字段，主要包括：
 
-本文在 \texttt{struct proc} 中增加若干字段，用于记录进程的运行状态统计信息，包括运行时间、等待时间以及调度次数等。例如：
+\begin{itemize}
+\item \texttt{c\_time}：进程创建时刻；
+\item \texttt{e\_time}：进程退出时刻；
+\item \texttt{m\_run\_ticks}：进程处于 \texttt{RUNNING} 状态时累计运行的时钟滴答数；
+\item \texttt{m\_wait\_ticks}：进程处于 \texttt{RUNNABLE} 状态时累计等待的时钟滴答数；
+\item \texttt{m\_sleep\_ticks}：预留的睡眠统计字段；
+\item \texttt{first\_run\_time}：进程首次被调度执行的时刻；
+\item \texttt{m\_sched\_count}：进程被调度器选中的次数；
+\item \texttt{m\_last\_scheduled\_tick}：最近一次被调度的时刻；
+\item \texttt{rl\_state}：预留的强化学习状态字段。
+\end{itemize}
 
-\begin{verbatim}
-uint64 run_ticks;
-uint64 wait_ticks;
-uint64 sched_count;
-\end{verbatim}
-
-这些信息能够反映进程在系统中的运行情况，并用于构建强化学习状态空间。
-并且添加对这些字段的更新与维护。
+上述字段中，\texttt{c\_time}、\texttt{first\_run\_time} 和 \texttt{e\_time} 可用于进一步计算响应时间与周转时间；\texttt{m\_run\_ticks} 与 \texttt{m\_wait\_ticks} 则既参与状态建模，也用于实验章节中的性能评估。
 
 \subsubsection{Q 表设计}
 
-Q-learning 算法需要维护一个 Q 表，用于存储状态-动作价值函数：
-\begin{equation}
-Q(s,a)
-\end{equation}
-由于 xv6 内核环境资源有限，且Qlearning的动作空间还没有进一步实现（或者说定义比较简单，即选择分最高的），所以本文暂时使用简单一维数组实现Q表:
-\todo{这里Qlearning的Q(s,a)的a还没有定义完整。}
+Q-learning 需要维护状态-动作价值函数 $Q(s,a)$。考虑到 xv6 内核环境不适合直接引入复杂数据结构，本文采用静态二维数组实现 Q 表：
+
 \begin{verbatim}
 int qtable[NSTATE][NACTION];
 struct spinlock qtable_lock;
 \end{verbatim}
-其中：
+
+其中，\texttt{NSTATE} 表示离散状态空间大小，\texttt{NACTION} 表示动作空间大小。为避免多核环境下出现并发更新错误，Q 表访问由自旋锁 \texttt{qtable\_lock} 保护。
+
+此外，由于 xv6 内核中不便直接使用浮点运算，本文采用定点数方式实现学习参数。具体而言，设置 \texttt{SCALE=1000}，并用整数近似表示学习率与折扣因子，例如：
+
 \begin{itemize}
-\item \texttt{NSTATE} 表示状态空间大小
-\item \texttt{NACTION} 表示动作空间大小
+\item \texttt{ALPHA=100}，表示 $\alpha=0.1$；
+\item \texttt{GAMMA=900}，表示 $\gamma=0.9$。
 \end{itemize}
-系统在每次调度时根据当前状态查找对应 Q 值，并选择 Q 值最大的进程。
 
-\subsubsection{状态映射}
+这种定点化实现方式避免了内核浮点支持问题，同时能够满足本文原型系统的实验需求。
 
-由于操作系统状态空间可能较为复杂，需要对状态进行离散化处理。本文根据进程等待时间、运行时间以及就绪队列长度构造离散状态。
-更加具体来说：
-根据等待时间分为三级：短等待时间（\texttt{wait\_ticks} < 5），中等待时间（\texttt{wait\_ticks} < 20），长等待时间（\texttt{wait\_ticks} >= 20）。更加准确的来来说是进程处在RUNNABLE状态下经过的时钟周期数目。
-根据被调度次数分为三级：调度次数较少（\texttt{sched\_count} < 2），调度次数中等（\texttt{sched\_count} < 5），调度次数较多（\texttt{sched\_count} >= 5）。
-就绪队列长度因为统计较为困难，所以暂时还没有再第一版中实现。
-\todo{就绪队列长度的状态统计还没有完成。}
+\subsubsection{状态空间设计}
 
-通过组合这些指标，可以构建有限大小的状态空间，从而实现 Q-learning 算法。
+状态空间采用离散化编码方式构造。本文并未直接使用单个进程的高维特征，而是从全局调度视角抽取两个更易维护的系统级指标：
+
+\begin{itemize}
+\item 当前处于 \texttt{RUNNABLE} 状态的进程数；
+\item 所有 \texttt{RUNNABLE} 进程中的最大等待时间。
+\end{itemize}
+
+在代码实现中，首先将可运行进程数映射到 3 个区间：
+
+\begin{itemize}
+\item 0 类：可运行进程数不超过 1；
+\item 1 类：可运行进程数在 2 到 4 之间；
+\item 2 类：可运行进程数大于 4。
+\end{itemize}
+
+随后将最大等待时间映射到 3 个区间：
+
+\begin{itemize}
+\item 0 类：最大等待时间小于 5 个时钟滴答；
+\item 1 类：最大等待时间在 5 到 19 个时钟滴答之间；
+\item 2 类：最大等待时间不小于 20 个时钟滴答。
+\end{itemize}
+
+二者组合后形成有限状态空间：
+
+\begin{equation}
+NSTATE = NRUN\_BUCKET \times NWAIT\_BUCKET = 3 \times 3 = 9
+\end{equation}
+
+状态编码方式为
+
+\begin{equation}
+s = rb \times NWAIT\_BUCKET + wb
+\end{equation}
+
+其中，$rb$ 表示可运行进程数所在区间，$wb$ 表示最大等待时间所在区间。该表示方式能够在较低实现复杂度下反映系统当前负载和等待压力。
+
+\subsubsection{动作空间设计}
+
+本文将动作定义为“选择某一种调度规则”，而非直接将某个进程编号作为动作。这样处理的优点在于动作空间固定且规模较小，更适合在内核环境中进行在线学习。当前实现共定义 4 个动作：
+
+\begin{itemize}
+\item \texttt{ACT\_PICK\_MAX\_WAIT}：优先选择等待时间最长的 \texttt{RUNNABLE} 进程；
+\item \texttt{ACT\_PICK\_MIN\_SCHED}：优先选择被调度次数最少的进程；
+\item \texttt{ACT\_PICK\_MIN\_RTIME}：优先选择累计运行时间最短的进程；
+\item \texttt{ACT\_PICK\_RR}：按照轮转调度规则选择下一个进程。
+\end{itemize}
+
+前三种动作均利用进程统计信息进行启发式选择；当主判据相同时，再使用等待时间或调度次数作为次级比较条件，以降低选择结果的随意性。最后一种动作保留了 xv6 的传统轮转调度思想，可作为强化学习探索过程中的基准行为。
 
 \subsection{内核实现细节}
 
-在实现强化学习调度器时，需要在 xv6 内核的多个位置进行修改，以支持状态统计、奖励计算以及 Q 表更新。
-\subsubsection{随机数模块添加}
-\subsection{系统内部状态观测}
-procdump
-\subsubsection{系统调用扩展}
+\subsubsection{调度主循环改造}
 
-为了获取系统运行状态或调试调度器行为，可以增加新的系统调用接口，用于输出调度统计信息。例如，可以实现如下接口：
+强化学习调度器的核心修改位于 \texttt{scheduler()}。与默认 xv6 调度器相比，新的调度主循环不再直接顺序查找下一个可运行进程，而是划分为“状态观测、动作决策、规则选进程、反馈学习”四个步骤。
 
-\begin{verbatim}
-int sys_waitstat(void);
-\end{verbatim}
+调度器首先调用 \texttt{build\_global\_state()} 统计系统状态，再调用 \texttt{choose\_action()} 根据当前状态从 Q 表中选择动作。当动作确定后，\texttt{pick\_proc\_by\_action()} 根据该动作对应的规则从 \texttt{RUNNABLE} 进程集合中选出目标进程，并保持其进程锁。若该进程为首次运行，则记录 \texttt{first\_run\_time}；随后更新 \texttt{m\_sched\_count} 与最近调度时刻，将其状态切换为 \texttt{RUNNING} 并执行上下文切换。
 
-该系统调用，再原有\texttt{wait()}的逻辑上进行了状态统计字段的重写，主要是用于当父进程等待子进程返回并且将子进程的系统调度状态传回用户空间，以进行下一部分的实验数据分析。
+进程让出处理器之后，调度器重新计算下一状态，并依据状态转移结果计算奖励，再调用 \texttt{rl\_update()} 更新 Q 表。由此，Q-learning 的一次交互过程恰好对应一次调度决策。
 
-\subsubsection{系统调度状态统计}
+\subsubsection{$\varepsilon$-greedy 策略实现}
 
-主要分为两个部分，\texttt{scheduler}内部进行，当运行进程被选中时，当前进程的\texttt{sche\_count}加一。
-同时因为xv6使用时钟中断实现时间片机制。在每次时钟中断发生时，在函数\texttt{clockintr()}中进程更新操作，具体流程，是先判断进程的state状态，然后相应的状态统计字段加一：
- 
-\begin{itemize}
-\item 当前运行进程增加 run\_ticks
-\item RUNNABLE 进程增加 wait\_ticks
-\end{itemize}
-
-通过这种方式，可以实时记录进程的运行状态，为强化学习算法提供状态数据。
-
-\subsubsection{Q 表更新}
-
-因为xv6原本的设计需求是一个简单的教学系统，所以其内核中并不支持\texttt{float}，\texttt{double}等浮点数运算，所以本次实验中使用\texttt{uint64}和\texttt{int64}与一个$SCALE=1000$常数来模拟浮点数的运算
-在每次调度完成后，根据当前状态、执行动作以及获得奖励更新 Q 表。更新过程遵循 Q-learning 更新公式：
+在动作选择阶段，本文采用 $\varepsilon$-greedy 策略平衡探索与利用。实现中设定：
 
 \begin{equation}
-Q(s,a) \leftarrow Q(s,a) + \alpha (r + \gamma \max Q(s',a') - Q(s,a))
+\varepsilon = 0.1
 \end{equation}
 
-其中：
+即以 10\% 的概率随机选择动作，以 90\% 的概率选择当前状态下 Q 值最大的动作。对应实现中使用常量 \texttt{EPOSILON=10}，并调用 \texttt{rand\_range(100)} 生成随机数。若随机数小于 10，则执行探索；否则采用贪心策略。
+
+该方法实现简单、开销较低，适合 xv6 这类教学内核环境。同时，随机探索机制也可避免调度器过早陷入局部最优策略。
+
+\subsubsection{随机数模块添加}
+
+为支持 $\varepsilon$-greedy 探索，本文新增 \texttt{rand.c} 模块，实现了轻量级伪随机数生成器。该模块使用基于异或移位（xorshift）的整数随机算法维护全局随机状态：
 
 \begin{itemize}
-\item $s$ 表示当前状态
-\item $a$ 表示选择的动作
-\item $r$ 表示获得的奖励
-\item $s'$ 表示新的系统状态
+\item \texttt{randinit()}：初始化随机种子；
+\item \texttt{srand()}：重新设置种子；
+\item \texttt{rand32()}：返回 32 位随机数；
+\item \texttt{rand\_range(n)}：返回区间 \texttt{[0, n)} 内的随机整数。
 \end{itemize}
-实际中各个数值经过$SCALE$放缩之后，带入公式进行运算。
-通过不断更新 Q 表，调度器能够逐渐学习到更加合理的调度策略。
+
+考虑到调度器与 Q 表更新都可能在多核环境下被并发访问，随机数状态同样由自旋锁保护，从而保证随机序列更新过程的原子性。
+
+\subsubsection{调度状态统计机制}
+
+调度统计机制主要分为进程生命周期统计和时钟中断驱动统计两类。
+
+在进程生命周期层面，\texttt{allocproc()} 在进程创建时记录 \texttt{c\_time}，\texttt{kexit()} 在进程退出时记录 \texttt{e\_time}，调度器在进程第一次真正获得 CPU 时记录 \texttt{first\_run\_time}。这些指标可用于实验中计算响应时间与周转时间。
+
+在周期统计层面，本文在 \texttt{clockintr()} 中调用 \texttt{update\_sched\_stats()}。该函数在每次时钟中断到来时：
+
+\begin{itemize}
+\item 对当前正在运行的进程，将 \texttt{m\_run\_ticks} 加 1；
+\item 对所有处于 \texttt{RUNNABLE} 状态的其他进程，将 \texttt{m\_wait\_ticks} 加 1。
+\end{itemize}
+
+通过这种方式，系统能够以较低实现成本持续累积每个进程的运行时间与等待时间。需要指出的是，当前代码中虽然保留了 \texttt{m\_sleep\_ticks} 字段，但尚未在 \texttt{update\_sched\_stats()} 中对 \texttt{SLEEPING} 状态进程进行累计，因此该字段主要作为后续扩展预留。
+
+\subsubsection{奖励函数设计}
+
+奖励函数用于评价一次调度动作的效果。本文采用相对简化的奖励设计，重点关注“是否降低系统中的最长等待压力”。在实现中，奖励由两部分构成：
+
+\begin{itemize}
+\item 如果本次调度后进程进入终止状态，则给予正奖励 $+5$；
+\item 若下一状态的最大等待时间桶编号低于当前状态，则奖励 $+2$；若高于当前状态，则惩罚 $-2$。
+\end{itemize}
+
+设调度前状态为 $s$，调度后状态为 $s'$，对应奖励为 $r$，则 Q-learning 更新公式写为：
+
+\begin{equation}
+Q(s,a) \leftarrow Q(s,a) + \alpha \left(r + \gamma \max_{a'} Q(s',a') - Q(s,a)\right)
+\end{equation}
+
+当状态转移为终止情形时，代码中不再使用未来状态价值，而仅采用当前奖励作为目标值。尽管该奖励函数较为简化，但其能够直接推动调度器减少长期等待进程的积压，符合本文重点关注响应性与公平性的实验目标。
+
+\subsubsection{系统调用扩展与观测接口}
+
+为支持实验数据采集，本文在 \texttt{wait()} 的基础上扩展实现了 \texttt{waitstat()} 系统调用。其内核实现为 \texttt{kwaitstat()}。在父进程等待子进程退出时，除返回原有退出状态外，还将子进程的调度统计信息封装为 \texttt{struct pstat} 并复制到用户空间。
+
+\texttt{pstat} 中包含如下字段：
+
+\begin{itemize}
+\item \texttt{c\_time}；
+\item \texttt{e\_time}；
+\item \texttt{m\_run\_ticks}；
+\item \texttt{m\_wait\_ticks}；
+\item \texttt{m\_sleep\_ticks}；
+\item \texttt{first\_run\_time}；
+\item \texttt{m\_sched\_count}。
+\end{itemize}
+
+借助该接口，用户态测试程序可以直接收集每个任务的响应时间、周转时间和等待时间，为后续实验章节的数据对比提供基础。
+
+\subsubsection{系统内部状态输出}
+
+除 \texttt{waitstat()} 外，本文还增强了 \texttt{procdump()} 调试输出，使其能够打印进程最近调度时刻、累计运行时间、等待时间、调度次数以及强化学习相关状态字段，并在输出末尾调用 \texttt{qtabledump()} 打印当前 Q 表内容。该机制便于在开发阶段观察调度器学习过程，也有助于验证状态编码与动作价值是否按预期变化。
 
 \subsection{调度流程}
 
-基于 Q-learning 的调度器整体流程如图所示：
+综合上述实现，一个完整的 Q-learning 调度周期可描述为：
 
 \begin{enumerate}
-\item 获取当前系统状态
-\item 查询 Q 表
-\item 使用 $\varepsilon$-greedy 策略选择进程
-\item 执行进程一个时间片
-\item 计算奖励
-\item 更新 Q 表
+\item 统计全局可运行进程数和最大等待时间；
+\item 将系统状态离散编码为状态编号 $s$；
+\item 依据 $\varepsilon$-greedy 策略选择动作 $a$；
+\item 按动作规则从 \texttt{RUNNABLE} 队列中选出目标进程；
+\item 运行该进程，直到时间片结束、主动阻塞或退出；
+\item 再次统计新状态 $s'$；
+\item 根据状态变化和是否终止计算奖励 $r$；
+\item 更新 Q 表项 $Q(s,a)$。
 \end{enumerate}
 
-通过不断重复上述过程，调度器可以根据系统运行情况不断调整调度策略。
+随着上述过程不断重复，调度器能够逐步学习在不同系统负载下应优先采用何种调度规则，从而在轮转、公平性优先与短作业倾向等多种行为之间实现自适应切换。
 
 \subsection{本章小结}
 
-本章介绍了基于 xv6 操作系统的 QL-Scheduler 实现方法。首先分析了调度器修改方案，在原有调度机制的基础上引入强化学习决策模块。随后设计了相关数据结构，包括进程统计信息与 Q 表结构。最后介绍了内核实现细节以及调度流程，为下一章的实验验证提供了实现基础。
+本章完成了基于 xv6 的 QL-Scheduler 实现说明。本文在 xv6 原有轮转调度框架上嵌入了 Q-learning 决策层，设计了由“可运行进程数”和“最大等待时间”构成的离散状态空间，以及由四种候选调度规则组成的动作空间；同时通过进程统计字段扩展、时钟中断统计、随机探索模块和 \texttt{waitstat()} 系统调用，构建了一个能够在线学习并支持实验观测的内核级调度原型。该实现为下一章的实验评估与性能分析提供了具体的系统基础。
