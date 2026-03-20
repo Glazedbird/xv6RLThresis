@@ -1,0 +1,149 @@
+\section{基于 xv6 的 QL-Scheduler 实现}
+
+在上一章中，本文设计了基于 Q-learning 的任务调度算法模型。本章在 xv6 操作系统的基础上实现该调度算法，通过修改系统调度器逻辑并扩展进程数据结构，实现强化学习调度机制。本章重点介绍调度器修改方案、数据结构设计以及内核实现细节。
+
+\subsection{调度器修改方案}
+
+xv6 操作系统采用简单的轮询调度策略（Round-Robin）。在默认实现中，调度器通过遍历进程表 \texttt{proc[]}，选择状态为 \texttt{RUNNABLE} 的进程运行。
+
+本文在原有调度机制的基础上引入强化学习决策层，实现基于 Q-learning 的调度策略。整体修改方案主要包括以下几个方面：
+
+\begin{itemize}
+\item 在 \texttt{scheduler()} 函数中加入 Q-learning 决策逻辑
+\item 扩展 \texttt{struct proc} 数据结构，用于记录调度统计信息
+\item 引入 Q 表（Q-table）用于存储状态-动作价值函数
+\item 添加简单的随机数模块以支持$\varepsilon$-greedy策略
+\end{itemize}
+
+修改后的调度流程如下：
+\todo{修改后的调度流程图加一张。}
+\begin{enumerate}
+\item 调度器扫描进程表，获取所有 RUNNABLE 进程
+\item 编码当前系统状态
+\item 使用 $\varepsilon$-greedy 策略选择调度策略
+\item 使用选中的调度策略选择符合条件进程
+\item 根据运行结果计算奖励并更新 Q 表
+\end{enumerate}
+
+\begin{verbatim}
+int state = build_global_state();
+int action = choose_action(state);
+best = pick_proc_by_action(action);
+\end{verbatim}
+
+
+通过这种方式，可以在不改变 xv6 核心结构的前提下，实现强化学习调度机制。
+
+\subsection{数据结构设计}
+
+为了支持强化学习调度算法，需要对 xv6 内核数据结构进行一定扩展。
+
+\subsubsection{进程统计信息}
+
+本文在 \texttt{struct proc} 中增加若干字段，用于记录进程的运行状态统计信息，包括运行时间、等待时间以及调度次数等。例如：
+
+\begin{verbatim}
+uint64 run_ticks;
+uint64 wait_ticks;
+uint64 sched_count;
+\end{verbatim}
+
+这些信息能够反映进程在系统中的运行情况，并用于构建强化学习状态空间。
+并且添加对这些字段的更新与维护。
+
+\subsubsection{Q 表设计}
+
+Q-learning 算法需要维护一个 Q 表，用于存储状态-动作价值函数：
+\begin{equation}
+Q(s,a)
+\end{equation}
+由于 xv6 内核环境资源有限，且Qlearning的动作空间还没有进一步实现（或者说定义比较简单，即选择分最高的），所以本文暂时使用简单一维数组实现Q表:
+\todo{这里Qlearning的Q(s,a)的a还没有定义完整。}
+\begin{verbatim}
+int qtable[NSTATE][NACTION];
+struct spinlock qtable_lock;
+\end{verbatim}
+其中：
+\begin{itemize}
+\item \texttt{NSTATE} 表示状态空间大小
+\item \texttt{NACTION} 表示动作空间大小
+\end{itemize}
+系统在每次调度时根据当前状态查找对应 Q 值，并选择 Q 值最大的进程。
+
+\subsubsection{状态映射}
+
+由于操作系统状态空间可能较为复杂，需要对状态进行离散化处理。本文根据进程等待时间、运行时间以及就绪队列长度构造离散状态。
+更加具体来说：
+根据等待时间分为三级：短等待时间（\texttt{wait\_ticks} < 5），中等待时间（\texttt{wait\_ticks} < 20），长等待时间（\texttt{wait\_ticks} >= 20）。更加准确的来来说是进程处在RUNNABLE状态下经过的时钟周期数目。
+根据被调度次数分为三级：调度次数较少（\texttt{sched\_count} < 2），调度次数中等（\texttt{sched\_count} < 5），调度次数较多（\texttt{sched\_count} >= 5）。
+就绪队列长度因为统计较为困难，所以暂时还没有再第一版中实现。
+\todo{就绪队列长度的状态统计还没有完成。}
+
+通过组合这些指标，可以构建有限大小的状态空间，从而实现 Q-learning 算法。
+
+\subsection{内核实现细节}
+
+在实现强化学习调度器时，需要在 xv6 内核的多个位置进行修改，以支持状态统计、奖励计算以及 Q 表更新。
+\subsubsection{随机数模块添加}
+\subsection{系统内部状态观测}
+procdump
+\subsubsection{系统调用扩展}
+
+为了获取系统运行状态或调试调度器行为，可以增加新的系统调用接口，用于输出调度统计信息。例如，可以实现如下接口：
+
+\begin{verbatim}
+int sys_waitstat(void);
+\end{verbatim}
+
+该系统调用，再原有\texttt{wait()}的逻辑上进行了状态统计字段的重写，主要是用于当父进程等待子进程返回并且将子进程的系统调度状态传回用户空间，以进行下一部分的实验数据分析。
+
+\subsubsection{系统调度状态统计}
+
+主要分为两个部分，\texttt{scheduler}内部进行，当运行进程被选中时，当前进程的\texttt{sche\_count}加一。
+同时因为xv6使用时钟中断实现时间片机制。在每次时钟中断发生时，在函数\texttt{clockintr()}中进程更新操作，具体流程，是先判断进程的state状态，然后相应的状态统计字段加一：
+ 
+\begin{itemize}
+\item 当前运行进程增加 run\_ticks
+\item RUNNABLE 进程增加 wait\_ticks
+\end{itemize}
+
+通过这种方式，可以实时记录进程的运行状态，为强化学习算法提供状态数据。
+
+\subsubsection{Q 表更新}
+
+因为xv6原本的设计需求是一个简单的教学系统，所以其内核中并不支持\texttt{float}，\texttt{double}等浮点数运算，所以本次实验中使用\texttt{uint64}和\texttt{int64}与一个$SCALE=1000$常数来模拟浮点数的运算
+在每次调度完成后，根据当前状态、执行动作以及获得奖励更新 Q 表。更新过程遵循 Q-learning 更新公式：
+
+\begin{equation}
+Q(s,a) \leftarrow Q(s,a) + \alpha (r + \gamma \max Q(s',a') - Q(s,a))
+\end{equation}
+
+其中：
+
+\begin{itemize}
+\item $s$ 表示当前状态
+\item $a$ 表示选择的动作
+\item $r$ 表示获得的奖励
+\item $s'$ 表示新的系统状态
+\end{itemize}
+实际中各个数值经过$SCALE$放缩之后，带入公式进行运算。
+通过不断更新 Q 表，调度器能够逐渐学习到更加合理的调度策略。
+
+\subsection{调度流程}
+
+基于 Q-learning 的调度器整体流程如图所示：
+
+\begin{enumerate}
+\item 获取当前系统状态
+\item 查询 Q 表
+\item 使用 $\varepsilon$-greedy 策略选择进程
+\item 执行进程一个时间片
+\item 计算奖励
+\item 更新 Q 表
+\end{enumerate}
+
+通过不断重复上述过程，调度器可以根据系统运行情况不断调整调度策略。
+
+\subsection{本章小结}
+
+本章介绍了基于 xv6 操作系统的 QL-Scheduler 实现方法。首先分析了调度器修改方案，在原有调度机制的基础上引入强化学习决策模块。随后设计了相关数据结构，包括进程统计信息与 Q 表结构。最后介绍了内核实现细节以及调度流程，为下一章的实验验证提供了实现基础。
