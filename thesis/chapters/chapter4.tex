@@ -6,23 +6,31 @@
 
 xv6 操作系统采用简单的轮询调度策略（Round-Robin）。在默认实现中，调度器通过遍历进程表 \texttt{proc[]}，选择状态为 \texttt{RUNNABLE} 的进程运行。
 
-本文在原有调度机制的基础上引入强化学习决策层，实现基于 Q-learning 的调度策略。整体修改方案主要包括以下三个方面：
+本文在原有调度机制的基础上引入强化学习决策层，实现基于 Q-learning 的调度策略。整体修改方案主要包括以下几个方面：
 
 \begin{itemize}
 \item 在 \texttt{scheduler()} 函数中加入 Q-learning 决策逻辑
 \item 扩展 \texttt{struct proc} 数据结构，用于记录调度统计信息
 \item 引入 Q 表（Q-table）用于存储状态-动作价值函数
+\item 添加简单的随机数模块以支持$\varepsilon$-greedy策略
 \end{itemize}
 
 修改后的调度流程如下：
-
+\todo{修改后的调度流程图加一张。}
 \begin{enumerate}
 \item 调度器扫描进程表，获取所有 RUNNABLE 进程
-\item 根据当前系统状态构造状态向量
-\item 使用 $\varepsilon$-greedy 策略选择调度动作
-\item 执行选中的进程
+\item 编码当前系统状态
+\item 使用 $\varepsilon$-greedy 策略选择调度策略
+\item 使用选中的调度策略选择符合条件进程
 \item 根据运行结果计算奖励并更新 Q 表
 \end{enumerate}
+
+\begin{verbatim}
+int state = build_global_state();
+int action = choose_action(state);
+best = pick_proc_by_action(action);
+\end{verbatim}
+
 
 通过这种方式，可以在不改变 xv6 核心结构的前提下，实现强化学习调度机制。
 
@@ -41,6 +49,7 @@ uint64 sched_count;
 \end{verbatim}
 
 这些信息能够反映进程在系统中的运行情况，并用于构建强化学习状态空间。
+并且添加对这些字段的更新与维护。
 
 \subsubsection{Q 表设计}
 
@@ -51,13 +60,15 @@ Q(s,a)
 由于 xv6 内核环境资源有限，且Qlearning的动作空间还没有进一步实现（或者说定义比较简单，即选择分最高的），所以本文暂时使用简单一维数组实现Q表:
 \todo{这里Qlearning的Q(s,a)的a还没有定义完整。}
 \begin{verbatim}
-uint64 qtable[NSTATE]
+int qtable[NSTATE][NACTION];
+struct spinlock qtable_lock;
 \end{verbatim}
 其中：
 \begin{itemize}
 \item \texttt{NSTATE} 表示状态空间大小
+\item \texttt{NACTION} 表示动作空间大小
 \end{itemize}
-系统在每次调度时根据当前状态查找对应 Q 值，并选择Q值最大的进程。
+系统在每次调度时根据当前状态查找对应 Q 值，并选择 Q 值最大的进程。
 
 \subsubsection{状态映射}
 
@@ -73,7 +84,9 @@ uint64 qtable[NSTATE]
 \subsection{内核实现细节}
 
 在实现强化学习调度器时，需要在 xv6 内核的多个位置进行修改，以支持状态统计、奖励计算以及 Q 表更新。
-
+\subsubsection{随机数模块添加}
+\subsection{系统内部状态观测}
+procdump
 \subsubsection{系统调用扩展}
 
 为了获取系统运行状态或调试调度器行为，可以增加新的系统调用接口，用于输出调度统计信息。例如，可以实现如下接口：
