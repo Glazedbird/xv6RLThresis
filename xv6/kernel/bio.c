@@ -116,11 +116,13 @@ bwrite(struct buf *b)
 void
 brelse(struct buf *b)
 {
+  // 这里还是保证了一下不定式
   if(!holdingsleep(&b->lock))
     panic("brelse");
 
   releasesleep(&b->lock);
 
+  // bcache.lock 是队列的锁
   acquire(&bcache.lock);
   b->refcnt--;
   if (b->refcnt == 0) {

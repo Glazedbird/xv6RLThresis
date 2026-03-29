@@ -15,12 +15,14 @@ struct file {
 
 // in-memory copy of an inode
 struct inode {
+  // 上面是内存中的信息
   uint dev;           // Device number
   uint inum;          // Inode number
   int ref;            // Reference count
   struct sleeplock lock; // protects everything below here
   int valid;          // inode has been read from disk?
 
+  // 下面是磁盘中的信息
   short type;         // copy of disk inode
   short major;
   short minor;
