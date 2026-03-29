@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "rl.h"
 
 struct cpu cpus[NCPU];
 
@@ -614,7 +615,7 @@ forkret(void)
     // regular process (e.g., because it calls sleep), and thus cannot
     // be run from main().
     fsinit(ROOTDEV);
-
+    qtableinit();
     first = 0;
     // ensure other cores see first=0.
     __sync_synchronize();

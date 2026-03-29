@@ -62,5 +62,6 @@ main(void)
   int ret = waitstat(&status, &st);
 	print_waitstat(ret, pid, &st);
 
+  
   exit(0);
 }

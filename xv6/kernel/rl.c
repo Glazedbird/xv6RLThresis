@@ -1,15 +1,16 @@
 #include "rl.h"
 #include "types.h"
-#include "param.h"
 #include "riscv.h"
 #include "defs.h"
 #include "spinlock.h"
+#include "qtable_store.h"
 
 int qtable[NSTATE][NACTION];
 struct spinlock qtable_lock;
 
 void qtableinit() {
     initlock(&qtable_lock, "qtable_lock");
+    qtable_load();
 }
 
 int

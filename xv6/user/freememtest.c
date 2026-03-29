@@ -3,6 +3,7 @@
 #include"kernel/param.h"
 int main(void)
 {
-  uint64 a = freemem();
-  printf("free mem: %lu bytes\n", a);
+  saveqtable();
+  printf("qtable saved.");
+
 }

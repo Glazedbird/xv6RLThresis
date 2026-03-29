@@ -31,6 +31,7 @@ OBJS = \
   $K/virtio_disk.o \
   $K/rl.o \
   $K/rand.o \
+  $K/qtable_store.o \
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -154,6 +155,7 @@ UPROGS=\
 	$U/_cpu_short\
 	$U/_mixed_job\
 	$U/_sleepy_job\
+	$U/_showqtable\
 	
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

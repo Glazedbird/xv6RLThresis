@@ -39,6 +39,7 @@ int uptime(void);
 int freemem(void);
 int vmprint(void);
 int waitstat(int *status, struct pstat *st);
+int saveqtable(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

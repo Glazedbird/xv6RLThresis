@@ -13,5 +13,3 @@
 #define MAXPATH      128   // maximum file path name
 #define USERSTACK    1     // user stack pages
 
-// RLchange
-#define NWAIT_BUCKET 3

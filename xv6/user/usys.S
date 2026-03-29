@@ -120,3 +120,8 @@ waitstat:
  li a7, SYS_waitstat
  ecall
  ret
+.global saveqtable
+saveqtable:
+ li a7, SYS_saveqtable
+ ecall
+ ret
