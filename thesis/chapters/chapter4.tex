@@ -87,6 +87,109 @@ r \times \texttt{SCALE} + \dfrac{\texttt{GAMMA}\max_{a'}Q(s',a')}{\texttt{SCALE}
 
 这种做法避免了浮点支持问题，也使得整个强化学习模块能够以纯整数逻辑运行在 xv6 内核中。
 
+\subsection{Q表持久化机制设计与实现}
+
+在强化学习调度过程中，Q表用于存储状态—动作对的价值估计，是调度策略学习的核心数据结构。
+若Q表仅存储于内存中，则在系统重启后学习结果将完全丢失，需要重新训练，
+这将显著降低系统的实用性与稳定性。因此，本文设计并实现了Q表的持久化存储机制，
+以支持学习结果的跨运行周期保留。
+
+\subsubsection{设计思路}
+
+Q表持久化的核心目标是：在保证系统稳定性的前提下，实现Q表在内存与磁盘之间的可靠同步。
+结合xv6文件系统的结构特点，本文采用如下设计：
+
+\begin{itemize}
+    \item 将Q表作为一个普通文件存储于文件系统中；
+    \item 使用inode层接口（如create、readi、writei）进行读写操作；
+    \item 通过日志机制（log）保证写入的原子性与一致性；
+    \item 引入版本号与校验机制确保数据合法性。
+\end{itemize}
+
+xv6文件系统采用分层设计，包括buffer cache、inode层以及日志层等结构 :contentReference[oaicite:0]{index=0}，
+为数据持久化提供了基础支持。
+
+\subsubsection{数据结构设计}
+
+为便于在磁盘中存储与恢复Q表，本文定义了专用的磁盘结构：
+
+\begin{itemize}
+    \item magic字段：用于标识数据合法性；
+    \item version字段：支持未来扩展与兼容；
+    \item nstate与naction：记录Q表维度；
+    \item q数组：存储具体Q值。
+\end{itemize}
+
+该结构通过“线性化”方式将二维Q表映射为连续内存区域，
+便于一次性读写，提高I/O效率。
+
+\subsubsection{持久化写入流程}
+
+Q表写入过程如算法~\ref{alg:qsave} 所示，主要包括以下步骤：
+
+\begin{enumerate}
+    \item 将内存中的Q表加锁并拷贝至磁盘结构；
+    \item 调用 \texttt{begin\_op()} 开启日志事务；
+    \item 通过 \texttt{namei} 或 \texttt{create} 获取目标inode；
+    \item 加锁inode并调用 \texttt{writei()} 写入数据；
+    \item 调用 \texttt{iunlockput()} 释放inode；
+    \item 调用 \texttt{end\_op()} 提交事务。
+\end{enumerate}
+
+其中，日志机制保证了写操作的原子性，
+即使系统崩溃也不会导致文件系统结构损坏。
+
+\subsubsection{持久化加载流程}
+
+系统启动时，通过Q表加载函数从磁盘恢复数据，其流程如下：
+
+\begin{enumerate}
+    \item 查找Q表文件对应inode；
+    \item 读取磁盘数据至内存结构；
+    \item 校验magic、version及维度信息；
+    \item 若校验通过，则更新内存Q表；
+    \item 若失败，则初始化默认Q表并重新写入磁盘。
+\end{enumerate}
+
+该设计保证了系统在异常情况下仍可恢复到合法状态。
+
+\subsubsection{并发与一致性控制}
+
+由于Q表在调度过程中可能被并发访问，本文采用自旋锁对其进行保护：
+
+\begin{itemize}
+    \item 在打包（pack）与解包（unpack）过程中加锁；
+    \item 避免读写过程中出现数据竞争；
+    \item 保证Q表在内存与磁盘之间的一致性。
+\end{itemize}
+
+同时，在文件系统层面，inode锁与日志锁共同确保了磁盘操作的安全性。
+
+\subsubsection{系统调用接口}
+
+为便于用户态触发Q表持久化，本文新增系统调用：
+
+\begin{center}
+\texttt{sys\_saveqtable()}
+\end{center}
+
+该接口调用内核中的Q表保存函数，实现用户态到内核态的控制路径扩展，
+增强了系统的可调试性与可扩展性。
+
+\subsubsection{设计分析}
+
+该持久化机制具有如下特点：
+
+\begin{itemize}
+    \item \textbf{实现简单}：复用xv6现有文件系统接口；
+    \item \textbf{可靠性高}：依赖日志机制保证一致性；
+    \item \textbf{开销较低}：仅在必要时进行读写操作；
+    \item \textbf{可扩展性强}：通过version字段支持未来扩展。
+\end{itemize}
+
+总体而言，该设计在不破坏xv6原有结构的前提下，
+实现了强化学习调度状态的持久化，为系统长期学习能力提供了基础支持。
+
 \subsection{状态空间与动作空间编码}
 
 \subsubsection{全局状态离散化}
