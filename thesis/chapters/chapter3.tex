@@ -81,22 +81,20 @@ $$
 基于上述过程，Q-learning调度算法可表示如下：
 
 \begin{algorithm}[htbp]
-\caption{Q-learning Scheduler}
-\label{alg:ql_scheduler}
+\caption{基于Q-learning的调度算法}
 \begin{algorithmic}[1]
 
-\State Initialize $Q(s,a)$ arbitrarily
+\State 初始化 $Q(s,a)$
 
-\While{system is running}
-\State Observe current state $s$
-\State Select action $a$ using $\epsilon$-greedy policy
-\State Execute scheduling policy corresponding to $a$
-\State Observe reward $r$ and next state $s'$
-\State Update:
-$$
-Q(s,a) \leftarrow Q(s,a) + \alpha \left( r + \gamma \max_{a'} Q(s',a') - Q(s,a) \right)
-$$
-\State $s \gets s'$
+\While{$\text{系统处于运行状态}$}
+    \State 观测当前系统状态 $s$
+    \State 基于 $\epsilon$-贪心策略选择动作 $a$
+    \State 执行与动作 $a$ 对应的调度策略
+    \State 观测奖励 $r$ 及下一状态 $s'$
+    \State 按照
+    $Q(s,a) \leftarrow Q(s,a) + \alpha \left( r + \gamma \max_{a'} Q(s',a') - Q(s,a) \right)$
+    更新 Q 值
+    \State $s \gets s'$
 \EndWhile
 
 \end{algorithmic}
